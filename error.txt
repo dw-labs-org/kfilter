@@ -1,0 +1,173 @@
+   Compiling cfg-if v1.0.0
+   Compiling libm v0.2.8
+   Compiling bytemuck v1.16.1
+   Compiling simd-adler32 v0.3.7
+   Compiling libc v0.2.155
+   Compiling adler v1.0.2
+   Compiling byteorder v1.5.0
+   Compiling bitflags v1.3.2
+   Compiling crc32fast v1.4.2
+   Compiling libloading v0.8.5
+   Compiling color_quant v1.1.0
+   Compiling pathfinder_simd v0.5.4
+   Compiling safe_arch v0.7.2
+   Compiling miniz_oxide v0.7.4
+   Compiling fdeflate v0.3.4
+   Compiling dlib v0.5.2
+   Compiling once_cell v1.19.0
+   Compiling same-file v1.0.6
+   Compiling num-traits v0.2.19
+   Compiling ppv-lite86 v0.2.17
+   Compiling log v0.4.22
+   Compiling weezl v0.1.8
+   Compiling getrandom v0.2.15
+   Compiling dirs-sys-next v0.1.2
+   Compiling jpeg-decoder v0.3.1
+   Compiling flate2 v1.0.30
+   Compiling plotters-backend v0.3.6
+   Compiling rand_core v0.6.4
+   Compiling dirs-next v2.0.0
+   Compiling pathfinder_geometry v0.5.1
+   Compiling gif v0.12.0
+   Compiling rand_chacha v0.3.1
+   Compiling walkdir v2.5.0
+   Compiling wide v0.7.26
+   Compiling png v0.17.13
+   Compiling freetype-sys v0.20.1
+   Compiling approx v0.5.1
+   Compiling num-complex v0.4.6
+   Compiling num-integer v0.1.46
+   Compiling yeslogic-fontconfig-sys v5.0.0
+   Compiling iana-time-zone v0.1.60
+   Compiling lazy_static v1.5.0
+   Compiling float-ord v0.3.2
+   Compiling rawpointer v0.2.1
+   Compiling bitflags v2.6.0
+   Compiling chrono v0.4.38
+   Compiling typenum v1.17.0
+   Compiling matrixmultiply v0.3.8
+   Compiling num-rational v0.4.2
+   Compiling font-kit v0.13.2
+   Compiling rand v0.8.5
+   Compiling image v0.24.9
+   Compiling plotters-svg v0.3.6
+   Compiling ttf-parser v0.20.0
+   Compiling simba v0.9.0
+   Compiling rand_distr v0.4.3
+   Compiling plotters-bitmap v0.3.6
+   Compiling plotters v0.3.6
+   Compiling nalgebra v0.33.0
+   Compiling kfilter v0.1.0 (/home/dom/Projects/kfilter)
+warning: fields `x`, `F`, `P`, `Q`, `H`, and `R` are never read
+  --> src/kalman.rs:7:9
+   |
+5  | struct Kalman<T, const N: usize, const M: usize> {
+   |        ------ fields in this struct
+6  |     /// Estimated state
+7  |     pub x: SVector<T, N>,
+   |         ^
+8  |     /// Discrete state transition
+9  |     F: SMatrix<T, N, N>,
+   |     ^
+10 |     /// Covariance
+11 |     pub P: SMatrix<T, N, N>,
+   |         ^
+12 |     /// Process Covariance
+13 |     Q: SMatrix<T, N, N>,
+   |     ^
+14 |     /// Observation Matrix
+15 |     H: SMatrix<T, M, N>,
+   |     ^
+16 |     /// Measurment covariance
+17 |     R: SMatrix<T, M, M>,
+   |     ^
+   |
+   = note: `Kalman` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: associated items `predict`, `update`, and `new` are never used
+  --> src/kalman.rs:21:12
+   |
+20 | impl<T: RealField + Copy, const N: usize, const M: usize> Kalman<T, N, M> {
+   | ------------------------------------------------------------------------- associated items in this implementation
+21 |     pub fn predict(&mut self) {
+   |            ^^^^^^^
+...
+26 |     pub fn update(&mut self, z: &SVector<T, M>) {
+   |            ^^^^^^
+...
+39 |     pub fn new(
+   |            ^^^
+
+warning: structure field `F` should have a snake case name
+ --> src/kalman.rs:9:5
+  |
+9 |     F: SMatrix<T, N, N>,
+  |     ^ help: convert the identifier to snake case (notice the capitalization): `f`
+  |
+  = note: `#[warn(non_snake_case)]` on by default
+
+warning: structure field `P` should have a snake case name
+  --> src/kalman.rs:11:9
+   |
+11 |     pub P: SMatrix<T, N, N>,
+   |         ^ help: convert the identifier to snake case: `p`
+
+warning: structure field `Q` should have a snake case name
+  --> src/kalman.rs:13:5
+   |
+13 |     Q: SMatrix<T, N, N>,
+   |     ^ help: convert the identifier to snake case: `q`
+
+warning: structure field `H` should have a snake case name
+  --> src/kalman.rs:15:5
+   |
+15 |     H: SMatrix<T, M, N>,
+   |     ^ help: convert the identifier to snake case: `h`
+
+warning: structure field `R` should have a snake case name
+  --> src/kalman.rs:17:5
+   |
+17 |     R: SMatrix<T, M, M>,
+   |     ^ help: convert the identifier to snake case: `r`
+
+warning: variable `S` should have a snake case name
+  --> src/kalman.rs:30:13
+   |
+30 |         let S = self.H * self.P * self.H.transpose() + self.R;
+   |             ^ help: convert the identifier to snake case (notice the capitalization): `s`
+
+warning: variable `K` should have a snake case name
+  --> src/kalman.rs:32:13
+   |
+32 |         let K = self.P * self.H.transpose() * S.try_inverse().unwrap();
+   |             ^ help: convert the identifier to snake case (notice the capitalization): `k`
+
+warning: variable `F` should have a snake case name
+  --> src/kalman.rs:40:9
+   |
+40 |         F: SMatrix<T, N, N>,
+   |         ^ help: convert the identifier to snake case (notice the capitalization): `f`
+
+warning: variable `Q` should have a snake case name
+  --> src/kalman.rs:41:9
+   |
+41 |         Q: SMatrix<T, N, N>,
+   |         ^ help: convert the identifier to snake case: `q`
+
+warning: variable `H` should have a snake case name
+  --> src/kalman.rs:42:9
+   |
+42 |         H: SMatrix<T, M, N>,
+   |         ^ help: convert the identifier to snake case: `h`
+
+warning: variable `R` should have a snake case name
+  --> src/kalman.rs:43:9
+   |
+43 |         R: SMatrix<T, M, M>,
+   |         ^ help: convert the identifier to snake case: `r`
+
+warning: `kfilter` (lib) generated 13 warnings
+    Finished dev [unoptimized + debuginfo] target(s) in 15.69s
+     Running `/tmp/cargo/target/debug/demo`
+Error: BackendError(DrawingError(ImageError(IoError(Os { code: 2, kind: NotFound, message: "No such file or directory" }))))
