@@ -1,19 +1,19 @@
 use nalgebra::{RealField, SMatrix, SVector};
 
-/// Basic representation of Kalman filter
+/// Representation of Kalman filter
 #[derive(Debug)]
 struct Kalman<T, const N: usize, const M: usize> {
     /// Estimated state
     pub x: SVector<T, N>,
     /// Discrete state transition
     F: SMatrix<T, N, N>,
-    /// Covariance (P)
+    /// Covariance
     pub P: SMatrix<T, N, N>,
-    /// (Q)
+    /// Process Covariance
     Q: SMatrix<T, N, N>,
-    /// Map from state to observation (H)
+    /// Observation Matrix
     H: SMatrix<T, M, N>,
-    /// Measurment covariance (R)
+    /// Measurment covariance
     R: SMatrix<T, M, M>,
 }
 
@@ -34,5 +34,21 @@ impl<T: RealField + Copy, const N: usize, const M: usize> Kalman<T, N, M> {
         self.x += K * y;
         // covariance update
         self.P = (SMatrix::identity() - K * self.H) * self.P;
+    }
+
+    pub fn new(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        H: SMatrix<T, M, N>,
+        R: SMatrix<T, M, M>,
+    ) -> Self {
+        Kalman {
+            x: SMatrix::zeros(),
+            F,
+            P: SMatrix::zeros(),
+            Q,
+            H,
+            R,
+        }
     }
 }
