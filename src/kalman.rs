@@ -76,7 +76,7 @@ mod tests {
         let F = Matrix2::new(1.0, 0.1, 0.0, 1.0);
         let Q = Matrix2::identity();
         let H = Matrix1x2::new(1.0, 0.0);
-        let R = Matrix1::identity();
+        let R = Matrix1::identity() * 0.5;
         let mut kalman = Kalman::new(F, Q, H, R);
 
         // Create a random number generator (using rand_distr crate)
@@ -88,7 +88,7 @@ mod tests {
         kalman.P = Q;
 
         // Record state evolution
-        const T: usize = 50;
+        const T: usize = 40;
         const VELOCITY: f64 = 1.0;
         let positions = (0..T).map(|t| (t as f64) * VELOCITY).collect::<Vec<f64>>();
         let mut measured = Vec::with_capacity(T);
@@ -112,7 +112,7 @@ mod tests {
         let root = SVGBackend::new("plots/kf1.svg", (640, 480)).into_drawing_area();
         root.fill(&WHITE);
         let mut chart = ChartBuilder::on(&root)
-            .caption("y=x^2", ("sans-serif", 50).into_font())
+            .caption("KF Position Estimate 1", ("sans-serif", 30).into_font())
             .margin(5)
             .x_label_area_size(30)
             .y_label_area_size(30)
@@ -141,21 +141,21 @@ mod tests {
 
         chart
             .draw_series(LineSeries::new(
-                (0..T).zip(updated).map(|(t, x)| (t as f32, x as f32)),
-                &BLUE,
-            ))
-            .unwrap()
-            .label("Updated")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
-
-        chart
-            .draw_series(LineSeries::new(
                 (0..T).zip(predicted).map(|(t, x)| (t as f32, x as f32)),
                 &GREEN,
             ))
             .unwrap()
             .label("Predicted")
             .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &GREEN));
+
+        chart
+            .draw_series(LineSeries::new(
+                (0..T).zip(updated).map(|(t, x)| (t as f32, x as f32)),
+                &BLUE,
+            ))
+            .unwrap()
+            .label("Updated")
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
 
         chart
             .configure_series_labels()

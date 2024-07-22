@@ -379,7 +379,6 @@ name = "kfilter"
 version = "0.1.0"
 dependencies = [
  "nalgebra",
- "num-traits",
  "plotters",
  "rand",
  "rand_distr",
