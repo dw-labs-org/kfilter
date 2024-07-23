@@ -1,9 +1,9 @@
 use std::usize;
 
-use nalgebra::{RealField, SMatrix, SVector};
+use nalgebra::{Matrix, RealField, SMatrix, SVector};
 
 use crate::{
-    measurement::Measurement,
+    measurement::{LinearMeasurement, Measurement},
     system::{LinearSystemNoInput, System},
 };
 
@@ -62,6 +62,48 @@ impl<
         *self.system.state_mut() += K * y;
         // covariance update
         self.P = (SMatrix::identity() - K * measurement.observation()) * self.P;
+    }
+}
+
+/// Kalman filter with a fixed shape measurement
+struct Kalman1M<
+    T,
+    const N: usize,
+    const U: usize,
+    const M: usize,
+    S: System<T, N, U>,
+    ME: Measurement<T, N, M>,
+> {
+    kalman: Kalman<T, N, U, S>,
+    measurement: ME,
+}
+
+impl<T: RealField + Copy, const N: usize, const M: usize>
+    Kalman1M<T, N, 0, M, LinearSystemNoInput<T, N>, LinearMeasurement<T, N, M>>
+{
+    pub fn new_linear_no_input(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        H: SMatrix<T, M, N>,
+        R: SMatrix<T, M, M>,
+    ) -> Self {
+        Kalman1M {
+            kalman: Kalman::new_linear_no_input(F, Q),
+            measurement: LinearMeasurement {
+                z: SMatrix::zeros(),
+                H,
+                R,
+            },
+        }
+    }
+
+    pub fn predict(&mut self) {
+        self.kalman.predict();
+    }
+
+    pub fn update(&mut self, z: SVector<T, M>) {
+        self.measurement.z = z;
+        self.kalman.update(&self.measurement);
     }
 }
 
