@@ -1,6 +1,6 @@
 use std::usize;
 
-use nalgebra::{Matrix, RealField, SMatrix, SVector};
+use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
     measurement::{LinearMeasurement, Measurement},
@@ -19,14 +19,14 @@ struct Kalman<T, const N: usize, const U: usize, S> {
 impl<T: RealField + Copy, const N: usize, const U: usize, S: System<T, N, U>> Kalman<T, N, U, S> {
     pub fn predict(&mut self) {
         self.system.step();
-        let F = self.system.transition();
-        self.P = F * self.P * F.transpose() + self.system.covariance();
+        self.P = self.system.transition() * self.P * self.system.transition_transpose()
+            + self.system.covariance();
     }
 
     pub fn predict_with_input(&mut self, u: SVector<T, U>) {
         self.system.step_with_input(u);
-        let F = self.system.transition();
-        self.P = F * self.P * F.transpose() + self.system.covariance();
+        self.P = self.system.transition() * self.P * self.system.transition_transpose()
+            + self.system.covariance();
     }
 
     pub fn new(system: S) -> Self {
@@ -51,13 +51,13 @@ impl<
     > KalmanUpdate<T, N, M, ME> for Kalman<T, N, U, S>
 {
     fn update(&mut self, measurement: &ME) {
-        let H_transpose = measurement.observation().transpose();
         // innovation
         let y = measurement.innovation(self.system.state());
         // innovation covariance
-        let S = measurement.observation() * self.P * H_transpose + measurement.covariance();
+        let S = measurement.observation() * self.P * measurement.observation_transpose()
+            + measurement.covariance();
         // Optimal gain
-        let K = self.P * H_transpose * S.try_inverse().unwrap();
+        let K = self.P * measurement.observation_transpose() * S.try_inverse().unwrap();
         // state update
         *self.system.state_mut() += K * y;
         // covariance update
@@ -89,11 +89,7 @@ impl<T: RealField + Copy, const N: usize, const M: usize>
     ) -> Self {
         Kalman1M {
             kalman: Kalman::new_linear_no_input(F, Q),
-            measurement: LinearMeasurement {
-                z: SMatrix::zeros(),
-                H,
-                R,
-            },
+            measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
         }
     }
 
