@@ -20,7 +20,7 @@ struct Kalman<T, const N: usize, const M: usize> {
 impl<T: RealField + Copy, const N: usize, const M: usize> Kalman<T, N, M> {
     pub fn predict(&mut self) {
         self.x = self.F * self.x;
-        self.P = self.F * self.P * self.F.transpose();
+        self.P = self.F * self.P * self.F.transpose() + self.Q;
     }
 
     pub fn update(&mut self, z: &SVector<T, M>) {
