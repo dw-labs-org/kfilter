@@ -97,6 +97,18 @@ pub struct LinearNoInputSystem<T, const N: usize> {
     Q: SMatrix<T, N, N>,
 }
 
+#[allow(non_snake_case)]
+impl<T: RealField + Copy, const N: usize> LinearNoInputSystem<T, N> {
+    pub fn new(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>) -> Self {
+        LinearNoInputSystem {
+            x: SMatrix::zeros(),
+            F,
+            F_t: F.transpose(),
+            Q,
+        }
+    }
+}
+
 impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
     for LinearNoInputSystem<T, N>
 {

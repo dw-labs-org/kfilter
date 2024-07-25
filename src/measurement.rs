@@ -9,6 +9,8 @@ pub trait Measurement<T, const N: usize, const M: usize> {
     fn observation(&self) -> &SMatrix<T, M, N>;
     /// Get the observation matrix transpose
     fn observation_transpose(&self) -> &SMatrix<T, N, M>;
+    /// Set the measurment (z) value
+    fn set_measurement(&mut self, z: SVector<T, M>);
 }
 
 #[allow(non_snake_case)]
@@ -54,6 +56,10 @@ impl<T: RealField + Copy, const N: usize, const M: usize> Measurement<T, N, M>
 
     fn observation_transpose(&self) -> &SMatrix<T, N, M> {
         &self.H_t
+    }
+
+    fn set_measurement(&mut self, z: SVector<T, M>) {
+        self.z = z;
     }
 }
 
@@ -101,5 +107,9 @@ impl<T: RealField + Copy, const N: usize, const M: usize> Measurement<T, N, M>
 
     fn observation_transpose(&self) -> &SMatrix<T, N, M> {
         &self.H_t
+    }
+
+    fn set_measurement(&mut self, z: SVector<T, M>) {
+        self.z = z;
     }
 }

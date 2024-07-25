@@ -1,8 +1,8 @@
 use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
-    measurement::Measurement,
-    system::{InputSystem, NoInputSystem, System},
+    measurement::{LinearMeasurement, Measurement},
+    system::{InputSystem, LinearNoInputSystem, LinearSystem, NoInputSystem, System},
 };
 
 /// Trait for a prediction of the next state for a system with no input
@@ -83,48 +83,122 @@ impl<
     }
 }
 
-// / Kalman filter with a fixed shape measurement
-// struct Kalman1M<
-//     T,
-//     const N: usize,
-//     const U: usize,
-//     const M: usize,
-//     S: System<T, N, U>,
-//     ME: Measurement<T, N, M>,
-// > {
-//     kalman: Kalman<T, N, U, S>,
-//     measurement: ME,
-// }
+/// Linear Kalman constructor
+impl<T, const N: usize, const U: usize> Kalman<T, N, U, LinearSystem<T, N, U>>
+where
+    T: RealField + Copy,
+{
+    #[allow(non_snake_case)]
+    pub fn new_with_input(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>, B: SMatrix<T, N, U>) -> Self {
+        Self {
+            P: SMatrix::zeros(),
+            system: LinearSystem::new(F, Q, B),
+        }
+    }
+}
 
-// impl<T: RealField + Copy, const N: usize, const M: usize>
-//     Kalman1M<T, N, 0, M, LinearSystemNoInput<T, N>, LinearMeasurement<T, N, M>>
-// {
-//     pub fn new_linear_no_input(
-//         F: SMatrix<T, N, N>,
-//         Q: SMatrix<T, N, N>,
-//         H: SMatrix<T, M, N>,
-//         R: SMatrix<T, M, M>,
-//     ) -> Self {
-//         Kalman1M {
-//             kalman: Kalman::new_linear_no_input(F, Q),
-//             measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
-//         }
-//     }
+/// Linear Kalman constructor without inputs
+impl<T, const N: usize> Kalman<T, N, 0, LinearNoInputSystem<T, N>>
+where
+    T: RealField + Copy,
+{
+    #[allow(non_snake_case)]
+    pub fn new(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>) -> Self {
+        Self {
+            P: SMatrix::zeros(),
+            system: LinearNoInputSystem::new(F, Q),
+        }
+    }
+}
 
-//     pub fn predict(&mut self) {
-//         self.kalman.predict();
-//     }
+/// Kalman filter with a fixed shape measurement
+pub struct Kalman1M<
+    T,
+    const N: usize,
+    const U: usize,
+    const M: usize,
+    S: System<T, N, U>,
+    ME: Measurement<T, N, M>,
+> {
+    kalman: Kalman<T, N, U, S>,
+    measurement: ME,
+}
 
-//     pub fn update(&mut self, z: SVector<T, M>) {
-//         self.measurement.z = z;
-//         self.kalman.update(&self.measurement);
-//     }
-// }
+/// Implement predict for Kalman1M with input
+impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanPredictInput<T, N, U>
+    for Kalman1M<T, N, U, M, S, ME>
+where
+    T: RealField + Copy,
+    S: InputSystem<T, N, U>,
+    ME: Measurement<T, N, M>,
+{
+    fn predict(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
+        self.kalman.predict(u)
+    }
+}
 
-// type KalmanLinearNoInput<T, const N: usize> = Kalman<T, N, 0, LinearSystemNoInput<T, N>>;
+/// Implement predict for Kalman1M with no input
+impl<T, const N: usize, const M: usize, S, ME> KalmanPredict<T, N> for Kalman1M<T, N, 0, M, S, ME>
+where
+    T: RealField + Copy,
+    S: NoInputSystem<T, N>,
+    ME: Measurement<T, N, M>,
+{
+    fn predict(&mut self) -> &SVector<T, N> {
+        self.kalman.predict()
+    }
+}
 
-// impl<T: RealField + Copy, const N: usize> KalmanLinearNoInput<T, N> {
-//     pub fn new_linear_no_input(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>) -> Self {
-//         Kalman::new(LinearSystemNoInput::new(F, Q, SMatrix::zeros()))
-//     }
-// }
+impl<T, const N: usize, const U: usize, const M: usize, S, ME> Kalman1M<T, N, U, M, S, ME>
+where
+    T: RealField + Copy,
+    S: System<T, N, U>,
+    ME: Measurement<T, N, M>,
+{
+    /// Update the state with a new measurement
+    pub fn update(&mut self, z: SVector<T, M>) {
+        self.measurement.set_measurement(z);
+        self.kalman.update(&self.measurement);
+    }
+}
+
+/// Linear system with input
+impl<T, const N: usize, const U: usize, const M: usize>
+    Kalman1M<T, N, U, M, LinearSystem<T, N, U>, LinearMeasurement<T, N, M>>
+where
+    T: RealField + Copy,
+{
+    /// Constructor for a linear kalman filter
+    pub fn new_with_input(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        B: SMatrix<T, N, U>,
+        H: SMatrix<T, M, N>,
+        R: SMatrix<T, M, M>,
+    ) -> Self {
+        Self {
+            kalman: Kalman::new_with_input(F, Q, B),
+            measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
+        }
+    }
+}
+
+/// Linear system without input
+impl<T, const N: usize, const M: usize>
+    Kalman1M<T, N, 0, M, LinearNoInputSystem<T, N>, LinearMeasurement<T, N, M>>
+where
+    T: RealField + Copy,
+{
+    /// Constructor for a linear kalman filter
+    pub fn new(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        H: SMatrix<T, M, N>,
+        R: SMatrix<T, M, M>,
+    ) -> Self {
+        Self {
+            kalman: Kalman::new(F, Q),
+            measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
+        }
+    }
+}
