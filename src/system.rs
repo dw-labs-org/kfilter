@@ -1,5 +1,3 @@
-use std::usize;
-
 use nalgebra::{RealField, SMatrix, SVector};
 
 pub type LinearSystemNoInput<T, const N: usize> = LinearSystem<T, N, 0>;

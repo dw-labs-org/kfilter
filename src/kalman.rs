@@ -1,5 +1,3 @@
-use std::usize;
-
 use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
