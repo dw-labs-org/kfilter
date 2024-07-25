@@ -1,3 +1,5 @@
+use core::usize;
+
 use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
@@ -5,20 +7,28 @@ use crate::{
     system::{InputSystem, LinearNoInputSystem, LinearSystem, NoInputSystem, System},
 };
 
+/// Base trait for Kalman or wrappers around it
+pub trait KalmanFilter<T, const N: usize> {
+    /// Get a reference to the state
+    fn state(&self) -> &SVector<T, N>;
+    /// Get a reference to the covariance
+    fn covariance(&self) -> &SMatrix<T, N, N>;
+}
+
 /// Trait for a prediction of the next state for a system with no input
-trait KalmanPredict<T, const N: usize> {
+pub trait KalmanPredict<T, const N: usize> {
     /// predict the next state and return it. Also update covariance
     fn predict(&mut self) -> &SVector<T, N>;
 }
 
 /// Trait for a prediction of the next state for a system with input
-trait KalmanPredictInput<T, const N: usize, const U: usize> {
+pub trait KalmanPredictInput<T, const N: usize, const U: usize> {
     /// predict the next state with an input vector and return it. Also update covariance
     fn predict(&mut self, u: SVector<T, U>) -> &SVector<T, N>;
 }
 
 /// Trait for a kalman filter to update the state and covariance based on a measurement
-trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, M>> {
+pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, M>> {
     /// Optimally update state and covariance based on the measurement
     fn update(&mut self, measurement: &ME);
 }
@@ -26,11 +36,25 @@ trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, M>> 
 /// Representation of Kalman filter
 #[derive(Debug)]
 #[allow(non_snake_case)]
-struct Kalman<T, const N: usize, const U: usize, S: System<T, N, U>> {
+struct Kalman<T, const N: usize, const U: usize, S> {
     /// Covariance
     pub P: SMatrix<T, N, N>,
     /// The associated system containing the state vector x
     pub system: S,
+}
+
+/// Implement [KalmanFilter] for state and covariance access
+impl<T, const N: usize, const U: usize, S> KalmanFilter<T, N> for Kalman<T, N, U, S>
+where
+    S: System<T, N, U>,
+{
+    fn state(&self) -> &SVector<T, N> {
+        self.system.state()
+    }
+
+    fn covariance(&self) -> &SMatrix<T, N, N> {
+        &self.P
+    }
 }
 
 /// Implement the predict stage for a system with no input
@@ -112,16 +136,23 @@ where
 }
 
 /// Kalman filter with a fixed shape measurement
-pub struct Kalman1M<
-    T,
-    const N: usize,
-    const U: usize,
-    const M: usize,
-    S: System<T, N, U>,
-    ME: Measurement<T, N, M>,
-> {
+pub struct Kalman1M<T, const N: usize, const U: usize, const M: usize, S, ME> {
     kalman: Kalman<T, N, U, S>,
     measurement: ME,
+}
+
+impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanFilter<T, N>
+    for Kalman1M<T, N, U, M, S, ME>
+where
+    S: System<T, N, U>,
+{
+    fn state(&self) -> &SVector<T, N> {
+        self.kalman.state()
+    }
+
+    fn covariance(&self) -> &SMatrix<T, N, N> {
+        self.kalman.covariance()
+    }
 }
 
 /// Implement predict for Kalman1M with input
