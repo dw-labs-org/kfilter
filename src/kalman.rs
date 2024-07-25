@@ -119,10 +119,16 @@ where
     T: RealField + Copy,
 {
     #[allow(non_snake_case)]
-    pub fn new_with_input(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>, B: SMatrix<T, N, U>) -> Self {
+    pub fn new_with_input(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        B: SMatrix<T, N, U>,
+        x_initial: SVector<T, N>,
+        P_initial: SMatrix<T, N, N>,
+    ) -> Self {
         Self {
-            P: SMatrix::zeros(),
-            system: LinearSystem::new(F, Q, B),
+            P: P_initial,
+            system: LinearSystem::new(F, Q, B, x_initial),
         }
     }
 }
@@ -133,10 +139,15 @@ where
     T: RealField + Copy,
 {
     #[allow(non_snake_case)]
-    pub fn new(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>) -> Self {
+    pub fn new(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        x_initial: SVector<T, N>,
+        P_initial: SMatrix<T, N, N>,
+    ) -> Self {
         Self {
-            P: SMatrix::zeros(),
-            system: LinearNoInputSystem::new(F, Q),
+            P: P_initial,
+            system: LinearNoInputSystem::new(F, Q, x_initial),
         }
     }
 }
@@ -210,6 +221,7 @@ where
     T: RealField + Copy,
 {
     /// Constructor for a linear kalman filter
+    /// Initial covariance is set to Q
     #[allow(non_snake_case)]
     pub fn new_with_input(
         F: SMatrix<T, N, N>,
@@ -217,9 +229,10 @@ where
         B: SMatrix<T, N, U>,
         H: SMatrix<T, M, N>,
         R: SMatrix<T, M, M>,
+        x_initial: SVector<T, N>,
     ) -> Self {
         Self {
-            kalman: Kalman::new_with_input(F, Q, B),
+            kalman: Kalman::new_with_input(F, Q, B, x_initial, Q),
             measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
         }
     }
@@ -232,15 +245,17 @@ where
     T: RealField + Copy,
 {
     /// Constructor for a linear kalman filter
+    /// Initial covariance is set to Q
     #[allow(non_snake_case)]
     pub fn new(
         F: SMatrix<T, N, N>,
         Q: SMatrix<T, N, N>,
         H: SMatrix<T, M, N>,
         R: SMatrix<T, M, M>,
+        x_initial: SVector<T, N>,
     ) -> Self {
         Self {
-            kalman: Kalman::new(F, Q),
+            kalman: Kalman::new(F, Q, x_initial, Q),
             measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
         }
     }

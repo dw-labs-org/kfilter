@@ -43,9 +43,14 @@ pub struct LinearSystem<T, const N: usize, const U: usize> {
 
 #[allow(non_snake_case)]
 impl<T: RealField + Copy, const N: usize, const U: usize> LinearSystem<T, N, U> {
-    pub fn new(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>, B: SMatrix<T, N, U>) -> Self {
+    pub fn new(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        B: SMatrix<T, N, U>,
+        x_initial: SVector<T, N>,
+    ) -> Self {
         LinearSystem {
-            x: SMatrix::zeros(),
+            x: x_initial,
             F,
             F_t: F.transpose(),
             Q,
@@ -99,9 +104,9 @@ pub struct LinearNoInputSystem<T, const N: usize> {
 
 #[allow(non_snake_case)]
 impl<T: RealField + Copy, const N: usize> LinearNoInputSystem<T, N> {
-    pub fn new(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>) -> Self {
+    pub fn new(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>, x_initial: SVector<T, N>) -> Self {
         LinearNoInputSystem {
-            x: SMatrix::zeros(),
+            x: x_initial,
             F,
             F_t: F.transpose(),
             Q,
@@ -169,9 +174,9 @@ pub struct NonLinearSystem<T, const N: usize, const U: usize> {
 }
 
 impl<T: RealField, const N: usize, const U: usize> NonLinearSystem<T, N, U> {
-    pub fn new(step_fn: StepInput<T, N, U>) -> Self {
+    pub fn new(step_fn: StepInput<T, N, U>, x_initial: SVector<T, N>) -> Self {
         Self {
-            x: SMatrix::zeros(),
+            x: x_initial,
             Q: SMatrix::zeros(),
             F: SMatrix::zeros(),
             F_t: SMatrix::zeros(),

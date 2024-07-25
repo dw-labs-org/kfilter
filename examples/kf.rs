@@ -8,6 +8,7 @@ fn main() {
         SMatrix::identity(),
         Matrix1x2::new(1.0, 0.0),
         SMatrix::identity(),
+        SMatrix::zeros(),
     );
 
     for i in 0..100 {
@@ -22,5 +23,6 @@ fn main() {
         Matrix2x1::new(0.0, 1.0),
         Matrix1x2::new(1.0, 0.0),
         SMatrix::identity(),
+        SMatrix::zeros(),
     );
 }
