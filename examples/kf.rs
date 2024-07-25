@@ -1,4 +1,4 @@
-use kfilter::kalman::{Kalman1M, KalmanFilter, KalmanPredict};
+use kfilter::kalman::{Kalman1M, KalmanPredict};
 use nalgebra::{Matrix1, Matrix1x2, Matrix2, Matrix2x1, SMatrix};
 
 fn main() {

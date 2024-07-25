@@ -154,7 +154,7 @@ pub struct StepReturn<T, const N: usize> {
 }
 
 /// A function that takes the current state and input, returning the next state and its covariance
-type StepInput<T, const N: usize, const U: usize> =
+pub type StepFunction<T, const N: usize, const U: usize> =
     fn(SVector<T, N>, SVector<T, U>) -> StepReturn<T, N>;
 
 /// A non-linear system with inputs
@@ -170,11 +170,11 @@ pub struct NonLinearSystem<T, const N: usize, const U: usize> {
     F_t: SMatrix<T, N, N>,
     /// Function that steps from current state to next with an input   
     /// Returns the new state, the jacobian and the process covariance
-    step_fn: StepInput<T, N, U>,
+    step_fn: StepFunction<T, N, U>,
 }
 
 impl<T: RealField, const N: usize, const U: usize> NonLinearSystem<T, N, U> {
-    pub fn new(step_fn: StepInput<T, N, U>, x_initial: SVector<T, N>) -> Self {
+    pub fn new(step_fn: StepFunction<T, N, U>, x_initial: SVector<T, N>) -> Self {
         Self {
             x: x_initial,
             Q: SMatrix::zeros(),

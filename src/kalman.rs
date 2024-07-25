@@ -4,7 +4,10 @@ use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
     measurement::{LinearMeasurement, Measurement},
-    system::{InputSystem, LinearNoInputSystem, LinearSystem, NoInputSystem, System},
+    system::{
+        InputSystem, LinearNoInputSystem, LinearSystem, NoInputSystem, NonLinearSystem,
+        StepFunction, System,
+    },
 };
 
 /// Base trait for Kalman or wrappers around it
@@ -38,7 +41,7 @@ pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, 
 /// Representation of Kalman filter
 #[derive(Debug)]
 #[allow(non_snake_case)]
-struct Kalman<T, const N: usize, const U: usize, S> {
+pub struct Kalman<T, const N: usize, const U: usize, S> {
     /// Covariance
     pub P: SMatrix<T, N, N>,
     /// The associated system containing the state vector x
@@ -148,6 +151,26 @@ where
         Self {
             P: P_initial,
             system: LinearNoInputSystem::new(F, Q, x_initial),
+        }
+    }
+}
+
+/// NonLinear Kalman constructor
+impl<T, const N: usize, const U: usize> Kalman<T, N, U, NonLinearSystem<T, N, U>>
+where
+    T: RealField + Copy,
+{
+    /// Create a new EKF with a non-linear system but with a linear measurement
+    /// Use new_custom to use a non-linear observation function
+    #[allow(non_snake_case)]
+    pub fn new_ekf_with_input(
+        step_fn: StepFunction<T, N, U>,
+        x_initial: SVector<T, N>,
+        P_initial: SMatrix<T, N, N>,
+    ) -> Self {
+        Self {
+            P: P_initial,
+            system: NonLinearSystem::new(step_fn, x_initial),
         }
     }
 }
