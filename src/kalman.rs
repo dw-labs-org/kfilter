@@ -210,6 +210,7 @@ where
     T: RealField + Copy,
 {
     /// Constructor for a linear kalman filter
+    #[allow(non_snake_case)]
     pub fn new_with_input(
         F: SMatrix<T, N, N>,
         Q: SMatrix<T, N, N>,
@@ -231,6 +232,7 @@ where
     T: RealField + Copy,
 {
     /// Constructor for a linear kalman filter
+    #[allow(non_snake_case)]
     pub fn new(
         F: SMatrix<T, N, N>,
         Q: SMatrix<T, N, N>,
