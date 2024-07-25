@@ -13,6 +13,8 @@ pub trait KalmanFilter<T, const N: usize> {
     fn state(&self) -> &SVector<T, N>;
     /// Get a reference to the covariance
     fn covariance(&self) -> &SMatrix<T, N, N>;
+    /// Get a mutable reference to the covariance
+    fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N>;
 }
 
 /// Trait for a prediction of the next state for a system with no input
@@ -54,6 +56,10 @@ where
 
     fn covariance(&self) -> &SMatrix<T, N, N> {
         &self.P
+    }
+
+    fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N> {
+        &mut self.P
     }
 }
 
@@ -152,6 +158,10 @@ where
 
     fn covariance(&self) -> &SMatrix<T, N, N> {
         self.kalman.covariance()
+    }
+
+    fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N> {
+        self.kalman.covariance_mut()
     }
 }
 
