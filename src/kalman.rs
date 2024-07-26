@@ -48,6 +48,19 @@ pub struct Kalman<T, const N: usize, const U: usize, S> {
     pub system: S,
 }
 
+impl<T, const N: usize, const U: usize, S> Kalman<T, N, U, S>
+where
+    S: System<T, N, U>,
+{
+    /// Create a new Kalman Filter using a [System]
+    pub fn new_custom(system: S, initial_covariance: SMatrix<T, N, N>) -> Self {
+        Self {
+            P: initial_covariance,
+            system,
+        }
+    }
+}
+
 /// Implement [KalmanFilter] for state and covariance access
 impl<T, const N: usize, const U: usize, S> KalmanFilter<T, N> for Kalman<T, N, U, S>
 where
@@ -178,6 +191,20 @@ where
 pub struct Kalman1M<T, const N: usize, const U: usize, const M: usize, S, ME> {
     kalman: Kalman<T, N, U, S>,
     measurement: ME,
+}
+
+/// Custom system and measurement
+impl<T, const N: usize, const U: usize, const M: usize, S, ME> Kalman1M<T, N, U, M, S, ME>
+where
+    S: System<T, N, U>,
+    ME: Measurement<T, N, M>,
+{
+    pub fn new_custom(system: S, initial_covariance: SMatrix<T, N, N>, measurement: ME) -> Self {
+        Self {
+            kalman: Kalman::new_custom(system, initial_covariance),
+            measurement,
+        }
+    }
 }
 
 impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanFilter<T, N>
