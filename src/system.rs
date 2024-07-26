@@ -1,6 +1,13 @@
-use nalgebra::{RealField, SMatrix, SVector};
+//! A system performs the modelling role in the Kalman filter, predicting the next state
+//! based on the current state and any inputs. A system must implement the [System] trait
+//! and either [InputSystem] or [NoInputSystem] accordingly.
+//!
+//! Typically one of
+//! [LinearSystem], [LinearNoInputSystem] or [NonLinearSystem] will be used and these will
+//! be created automatically in one of the [Kalman](crate::kalman::Kalman) or
+//! [Kalman1M](crate::kalman::Kalman1M) constructors.
 
-pub type LinearSystemNoInput<T, const N: usize> = LinearSystem<T, N, 0>;
+use nalgebra::{RealField, SMatrix, SVector};
 
 // ================================== Traits =================================
 
@@ -31,7 +38,8 @@ pub trait NoInputSystem<T, const N: usize>: System<T, N, 0> {
     fn step(&mut self) -> &SVector<T, N>;
 }
 
-/// A Linear system with an input matrix B
+/// A linear system with an input.
+/// Defined by the transition matrix F, control matrix B and covariance matrix Q.
 #[allow(non_snake_case)]
 pub struct LinearSystem<T, const N: usize, const U: usize> {
     x: SVector<T, N>,
@@ -43,6 +51,8 @@ pub struct LinearSystem<T, const N: usize, const U: usize> {
 
 #[allow(non_snake_case)]
 impl<T: RealField + Copy, const N: usize, const U: usize> LinearSystem<T, N, U> {
+    /// Create new [LinearSystem] from the transition matrix F, process covariance Q
+    /// and control matrix B.
     pub fn new(
         F: SMatrix<T, N, N>,
         Q: SMatrix<T, N, N>,
@@ -93,7 +103,8 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
     }
 }
 
-/// A Linear system with no input
+/// A linear system with no input.
+/// Defined by the transition matrix F and covariance matrix Q.
 #[allow(non_snake_case)]
 pub struct LinearNoInputSystem<T, const N: usize> {
     x: SVector<T, N>,
@@ -104,6 +115,7 @@ pub struct LinearNoInputSystem<T, const N: usize> {
 
 #[allow(non_snake_case)]
 impl<T: RealField + Copy, const N: usize> LinearNoInputSystem<T, N> {
+    /// Create new [LinearNoInputSystem] from the transition matrix F and process covariance Q.
     pub fn new(F: SMatrix<T, N, N>, Q: SMatrix<T, N, N>, x_initial: SVector<T, N>) -> Self {
         LinearNoInputSystem {
             x: x_initial,
@@ -146,18 +158,24 @@ impl<T: RealField + Copy, const N: usize> NoInputSystem<T, N> for LinearNoInputS
 
 // ========================== Non-Linear Systems ==============================
 
-/// Type returned from a call to [StepInput] and [Step] functions.
+/// Type returned from [StepFunction].
 pub struct StepReturn<T, const N: usize> {
+    /// The new state (x).
     pub state: SVector<T, N>,
+    /// The jacobian of the transition (F).
     pub jacobian: SMatrix<T, N, N>,
+    /// The process covariance (Q).
     pub covariance: SMatrix<T, N, N>,
 }
 
-/// A function that takes the current state and input, returning the next state and its covariance
+/// A function that takes the current state and input,
+/// returning the next state, its covariance and the jacobian.
+/// Used for the state transition in a [NonLinearSystem].
 pub type StepFunction<T, const N: usize, const U: usize> =
     fn(SVector<T, N>, SVector<T, U>) -> StepReturn<T, N>;
 
-/// A non-linear system with inputs
+/// A non-linear system with an input.
+/// Defined by a [StepFunction] that performs state transition and jacobian and covariance calculation.
 #[allow(non_snake_case)]
 pub struct NonLinearSystem<T, const N: usize, const U: usize> {
     /// System state
@@ -174,6 +192,7 @@ pub struct NonLinearSystem<T, const N: usize, const U: usize> {
 }
 
 impl<T: RealField, const N: usize, const U: usize> NonLinearSystem<T, N, U> {
+    /// Create a new [NonLinearSystem] using a [StepFunction]
     pub fn new(step_fn: StepFunction<T, N, U>, x_initial: SVector<T, N>) -> Self {
         Self {
             x: x_initial,
