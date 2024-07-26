@@ -67,12 +67,12 @@ pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, 
 /// use nalgebra::{SMatrix, Matrix2, Matrix1, Matrix1x2};
 /// use kfilter::{
 /// kalman::{Kalman, KalmanPredict, KalmanUpdate},
-/// measurement::LinearMeasurement,
+/// measurement::{LinearMeasurement,Measurement},
 /// };
 /// // Create a linear Kalman filter with Q = I and zero initial state and covariance.
 /// let mut kalman = Kalman::new(Matrix2::new(1.0,0.1,0.0,1.0), SMatrix::identity(), SMatrix::zeros(), SMatrix::zeros());
 /// // Create a new linear measurement
-/// let m = LinearMeasurement::new(
+/// let mut m = LinearMeasurement::new(
 ///     Matrix1x2::new(1.0, 0.0),
 ///     SMatrix::identity(),
 ///     Matrix1::new(0.0),
@@ -246,6 +246,35 @@ where
 /// Kalman filter with a fixed shape measurement. Useful for systems with a single sensor,
 /// or multiple sensors sampled at the same rate that perform a single update step. Use
 /// [Kalman] for sensors with different sample rates.
+///
+/// ## Usage
+/// There are a few constuctors that simplify the creation of the underlying [Kalman] filter,
+/// its [System] and the fixed [Measurement]:
+/// - Linear system without inputs, linear measurement: [Kalman1M::new].
+/// - Linear system with inputs, linear measurement: [Kalman1M::new_with_input].
+/// - Non-linear system with inputs, linear measurement: [Kalman1M::new_ekf_with_input].
+///
+/// Or for more configuration, use [Kalman1M::new_custom].
+///
+/// The [precict](Kalman1M::predict) and [update](Kalman1M::update) are then used to run
+/// the filter.
+/// ```
+/// use kfilter::kalman::{Kalman1M, KalmanPredict};
+/// use nalgebra::{Matrix1, Matrix1x2, Matrix2, SMatrix};
+/// // Create a new 2 state kalman filter
+/// let mut k = Kalman1M::new(
+///     Matrix2::new(1.0, 0.1, 0.0, 1.0),   // F
+///     SMatrix::identity(),                // Q
+///     Matrix1x2::new(1.0, 0.0),           // H
+///     SMatrix::identity(),                // R
+///     SMatrix::zeros(),                   // x
+/// );
+/// // Run 100 timesteps
+/// for i in 0..100 {
+///     k.predict();
+///     k.update(Matrix1::new(i as f64));
+/// }
+/// ```
 pub struct Kalman1M<T, const N: usize, const U: usize, const M: usize, S, ME> {
     kalman: Kalman<T, N, U, S>,
     measurement: ME,
@@ -284,7 +313,7 @@ where
     }
 }
 
-/// Implement predict for Kalman1M with input
+/// Implement predict for [Kalman1M] with input
 impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanPredictInput<T, N, U>
     for Kalman1M<T, N, U, M, S, ME>
 where
@@ -297,7 +326,7 @@ where
     }
 }
 
-/// Implement predict for Kalman1M with no input
+/// Implement predict for [Kalman1M] with no input
 impl<T, const N: usize, const M: usize, S, ME> KalmanPredict<T, N> for Kalman1M<T, N, 0, M, S, ME>
 where
     T: RealField + Copy,
