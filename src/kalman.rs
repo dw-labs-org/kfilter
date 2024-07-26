@@ -53,7 +53,7 @@ pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, 
 /// with directly for full control or using a wrapper like [Kalman1M] that simplifies
 /// the measurement update.
 ///
-/// ## Usage
+/// # Usage
 /// There are a few constructors that can create the underlying system automatically:
 /// - Linear system without inputs: [Kalman::new].
 /// - Linear system with inputs: [Kalman::new_with_input].
@@ -63,27 +63,48 @@ pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, 
 ///
 /// Then the state can be predicted with or without input ([predict](#method.predict)
 /// or [predict](#method.predict-1)) and updated using a [Measurement].
+///
+/// ## Example
+/// The following example is 2-state position + constant velocity system with frequent
+/// velocity measurements and infrequent position + velocity measurements.
+/// All the noise covariances are the identity matrix for simplicity
 /// ```
-/// use nalgebra::{SMatrix, Matrix2, Matrix1, Matrix1x2};
+/// use nalgebra::{SMatrix, Matrix2, Matrix1, Matrix1x2, Vector2};
 /// use kfilter::{
 /// kalman::{Kalman, KalmanPredict, KalmanUpdate},
 /// measurement::{LinearMeasurement,Measurement},
 /// };
 /// // Create a linear Kalman filter with Q = I and zero initial state and covariance.
-/// let mut kalman = Kalman::new(Matrix2::new(1.0,0.1,0.0,1.0), SMatrix::identity(), SMatrix::zeros(), SMatrix::zeros());
-/// // Create a new linear measurement
-/// let mut m = LinearMeasurement::new(
-///     Matrix1x2::new(1.0, 0.0),
-///     SMatrix::identity(),
-///     Matrix1::new(0.0),
+/// let mut kalman = Kalman::new(
+///     Matrix2::new(1.0,0.1,0.0,1.0),  // F
+///     SMatrix::identity(),            // Q
+///     SMatrix::zeros(),               // P initial
+///     SMatrix::zeros()                // x initial
 /// );
-/// let predicted_x = kalman.predict();
-/// let updated_x = kalman.update(&m);
-/// // Run 10 timesteps
-/// for i in 0..10 {
+/// // Create a new linear measurement for velocity
+/// let mut m1 = LinearMeasurement::new(
+///     Matrix1x2::new(0.0, 1.0),       // H1
+///     SMatrix::identity(),            // R1
+///     Matrix1::new(10.0),             // z1
+/// );
+/// let mut m2 = LinearMeasurement::new(
+///     Matrix2::identity(),            // H2
+///     SMatrix::identity(),            // R2
+///     Vector2::new(0.0,0.0),          // z2
+/// );
+///
+/// // Run 100 timesteps, x is 'real' value.
+/// for x in 0..100u32 {
+///     // predict using system model
 ///     kalman.predict();
-///     m.set_measurement(Matrix1::new(i as f64));
-///     kalman.update(&m);
+///     // update with velocity measurement
+///     kalman.update(&m1);
+///     // update with position and velocity every 10 samples
+///     if (x.rem_euclid(10) == 0){
+///         // slightly wrong velocity measurement
+///         m2.set_measurement(Vector2::new(x as f64, 9.5));
+///         kalman.update(&m2);
+///     }
 /// }
 /// ```
 ///
