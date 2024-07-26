@@ -29,6 +29,7 @@ pub trait Measurement<T, const N: usize, const M: usize> {
 #[allow(non_snake_case)]
 /// A linear measurement defined by the observation matrix H and noise matrix R.
 /// Implements the innovation function y = z - H * x.
+#[derive(Debug, Clone)]
 pub struct LinearMeasurement<T, const N: usize, const M: usize> {
     /// Observation / measurement. Can be modifed directly to set new value.
     pub z: SVector<T, M>,
@@ -86,6 +87,7 @@ pub type Prediction<T, const N: usize, const M: usize> = fn(&SVector<T, N>) -> S
 /// A non linear measurement that uses a prediction function to calculate h(x)
 /// H and R must be updated before being passed to [Kalman](crate::kalman::Kalman) filter
 #[allow(non_snake_case)]
+#[derive(Debug, Clone)]
 pub struct NonLinearMeasurement<T, const N: usize, const M: usize> {
     /// Observation / measurement. Can be modifed directly to set new value.
     pub z: SVector<T, M>,

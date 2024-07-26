@@ -41,6 +41,7 @@ pub trait NoInputSystem<T, const N: usize>: System<T, N, 0> {
 /// A linear system with an input.
 /// Defined by the transition matrix F, control matrix B and covariance matrix Q.
 #[allow(non_snake_case)]
+#[derive(Debug, Clone)]
 pub struct LinearSystem<T, const N: usize, const U: usize> {
     x: SVector<T, N>,
     F: SMatrix<T, N, N>,
@@ -106,6 +107,7 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
 /// A linear system with no input.
 /// Defined by the transition matrix F and covariance matrix Q.
 #[allow(non_snake_case)]
+#[derive(Debug, Clone)]
 pub struct LinearNoInputSystem<T, const N: usize> {
     x: SVector<T, N>,
     F: SMatrix<T, N, N>,
@@ -159,6 +161,7 @@ impl<T: RealField + Copy, const N: usize> NoInputSystem<T, N> for LinearNoInputS
 // ========================== Non-Linear Systems ==============================
 
 /// Type returned from [StepFunction].
+#[derive(Debug, Clone)]
 pub struct StepReturn<T, const N: usize> {
     /// The new state (x).
     pub state: SVector<T, N>,
@@ -177,6 +180,7 @@ pub type StepFunction<T, const N: usize, const U: usize> =
 /// A non-linear system with an input.
 /// Defined by a [StepFunction] that performs state transition and jacobian and covariance calculation.
 #[allow(non_snake_case)]
+#[derive(Debug, Clone)]
 pub struct NonLinearSystem<T, const N: usize, const U: usize> {
     /// System state
     x: SVector<T, N>,

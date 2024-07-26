@@ -108,8 +108,8 @@ pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, 
 /// }
 /// ```
 ///
-#[derive(Debug)]
 #[allow(non_snake_case)]
+#[derive(Debug, Clone)]
 pub struct Kalman<T, const N: usize, const U: usize, S> {
     /// Covariance
     P: SMatrix<T, N, N>,
@@ -296,6 +296,7 @@ where
 ///     k.update(Matrix1::new(i as f64));
 /// }
 /// ```
+#[derive(Debug, Clone)]
 pub struct Kalman1M<T, const N: usize, const U: usize, const M: usize, S, ME> {
     kalman: Kalman<T, N, U, S>,
     measurement: ME,
