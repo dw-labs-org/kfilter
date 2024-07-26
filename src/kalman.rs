@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-/// Base trait for Kalman or wrappers around it
+/// Base trait for [Kalman] or wrappers around it.
 pub trait KalmanFilter<T, const N: usize> {
     /// Get a reference to the state
     fn state(&self) -> &SVector<T, N>;
@@ -43,8 +43,8 @@ pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, 
 #[allow(non_snake_case)]
 pub struct Kalman<T, const N: usize, const U: usize, S> {
     /// Covariance
-    pub P: SMatrix<T, N, N>,
-    /// The associated system containing the state vector x
+    P: SMatrix<T, N, N>,
+    /// The associated [System] containing the state vector x
     pub system: S,
 }
 
@@ -160,8 +160,7 @@ impl<T, const N: usize, const U: usize> Kalman<T, N, U, NonLinearSystem<T, N, U>
 where
     T: RealField + Copy,
 {
-    /// Create a new EKF with a non-linear system but with a linear measurement
-    /// Use new_custom to use a non-linear observation function
+    /// Create a new EKF with a non-linear system
     #[allow(non_snake_case)]
     pub fn new_ekf_with_input(
         step_fn: StepFunction<T, N, U>,
@@ -279,6 +278,29 @@ where
     ) -> Self {
         Self {
             kalman: Kalman::new(F, Q, x_initial, Q),
+            measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
+        }
+    }
+}
+
+/// Non-Linear system with input
+impl<T, const N: usize, const U: usize, const M: usize>
+    Kalman1M<T, N, U, M, NonLinearSystem<T, N, U>, LinearMeasurement<T, N, M>>
+where
+    T: RealField + Copy,
+{
+    /// An EKF with a nonlinear system defined by step_fn but with a linear measurement
+    /// Use [Kalman1M::new_custom] for a nonlinear measurement.
+    #[allow(non_snake_case)]
+    pub fn new_ekf_with_input(
+        step_fn: StepFunction<T, N, U>,
+        H: SMatrix<T, M, N>,
+        R: SMatrix<T, M, M>,
+        x_initial: SVector<T, N>,
+        P_initial: SMatrix<T, N, N>,
+    ) -> Self {
+        Self {
+            kalman: Kalman::new_ekf_with_input(step_fn, x_initial, P_initial),
             measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
         }
     }
