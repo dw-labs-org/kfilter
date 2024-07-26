@@ -7,7 +7,7 @@
 //! The base [Kalman] type is the most configurable, allowing multi-rate sensor measurements.
 //! For simpler systems with single measurements, [Kalman1M] is easier to use.
 //!
-//! See this [blog post]() to understand why the library looks the way it does.
+//! See this [blog post](https://domwil.co.uk/posts/kalman/) to understand why the library looks the way it does.
 //!
 //! # Getting started
 //! See [Kalman1M] for an example of linear Kalman filter for a 2-state system model
