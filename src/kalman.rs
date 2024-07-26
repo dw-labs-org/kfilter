@@ -256,7 +256,7 @@ where
 ///
 /// Or for more configuration, use [Kalman1M::new_custom].
 ///
-/// The [precict](Kalman1M::predict) and [update](Kalman1M::update) are then used to run
+/// The [precict](Kalman1M::predict) and [update](Kalman1M::update) functions are then used to run
 /// the filter.
 /// ```
 /// use kfilter::kalman::{Kalman1M, KalmanPredict};
