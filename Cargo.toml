@@ -7,11 +7,11 @@ description = "A no-std implementation of the Kalman and Extended Kalman Filter.
 license = "MIT"
 repository = "https://github.com/dw-labs-org/kfilter"
 keywords = [
-    "Kalman Filter",
-    "Extended Kalman Filter",
-    "State estimation",
-    "Estimator",
-    "Filtering",
+    "kalman_filter",
+    "extended_kalman_filter",
+    "state_estimation",
+    "estimator",
+    "filtering",
 ]
 categories = [
     "aerospace",
