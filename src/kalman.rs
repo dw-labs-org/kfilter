@@ -1,3 +1,7 @@
+//! Implementation of the Kalman and Extended Kalman Filter. The [Kalman] type
+//! performs state predictions based on a generic [System] and updates the state based on
+//! a [Measurement].
+
 use core::usize;
 
 use nalgebra::{RealField, SMatrix, SVector};
@@ -10,7 +14,9 @@ use crate::{
     },
 };
 
-/// Base trait for [Kalman] or wrappers around it.
+/// Base trait for [Kalman] or wrappers around it. Allows viewing the state and covariance
+/// and modifying the covariance.
+/// Modifying the covariance can be necessary if it becomes non symmetric.
 pub trait KalmanFilter<T, const N: usize> {
     /// Get a reference to the state
     fn state(&self) -> &SVector<T, N>;
@@ -20,31 +26,96 @@ pub trait KalmanFilter<T, const N: usize> {
     fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N>;
 }
 
-/// Trait for a prediction of the next state for a system with no input
+/// Trait for a prediction of the next state for a system with no input.
+/// Uses the underlying [System] to perform the prediction and updates
+/// the covariance according to P = F * P * F_t + Q.
 pub trait KalmanPredict<T, const N: usize> {
     /// predict the next state and return it. Also update covariance
     fn predict(&mut self) -> &SVector<T, N>;
 }
 
-/// Trait for a prediction of the next state for a system with input
+/// Trait for a prediction of the next state for a system with input.
+/// Uses the underlying [System] to perform the prediction and updates
+/// the covariance according to P = F * P * F_t + Q.
 pub trait KalmanPredictInput<T, const N: usize, const U: usize> {
     /// predict the next state with an input vector and return it. Also update covariance
     fn predict(&mut self, u: SVector<T, U>) -> &SVector<T, N>;
 }
 
-/// Trait for a kalman filter to update the state and covariance based on a measurement
+/// Trait for a kalman filter to update the state and covariance based on a measurement.
+/// Optimally updates using the Kalman gain.
 pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, M>> {
     /// Optimally update state and covariance based on the measurement
     fn update(&mut self, measurement: &ME);
 }
 
-/// Representation of Kalman filter
+/// Representation of the Kalman filter. This is the base type that can be interacted
+/// with directly for full control or using a wrapper like [Kalman1M] that simplifies
+/// the measurement update.
+///
+/// # Usage
+/// There are a few constructors that can create the underlying system automatically:
+/// - Linear system without inputs: [Kalman::new].
+/// - Linear system with inputs: [Kalman::new_with_input].
+/// - Non-linear system with inputs: [Kalman::new_ekf_with_input].
+///
+/// Or for a more configurable setup: [Kalman::new_custom].
+///
+/// Then the state can be predicted with or without input ([predict](#method.predict)
+/// or [predict](#method.predict-1)) and updated using a [Measurement].
+///
+/// ## Example
+/// The following example is 2-state position + constant velocity system with frequent
+/// velocity measurements and infrequent position + velocity measurements.
+/// All the noise covariances are the identity matrix for simplicity
+/// ```
+/// use nalgebra::{SMatrix, Matrix2, Matrix1, Matrix1x2, Vector2};
+/// use kfilter::{
+/// kalman::{Kalman, KalmanPredict, KalmanUpdate},
+/// measurement::{LinearMeasurement,Measurement},
+/// };
+/// // Create a linear Kalman filter with Q = I and zero initial state and covariance.
+/// let mut kalman = Kalman::new(
+///     Matrix2::new(1.0,0.1,0.0,1.0),  // F
+///     SMatrix::identity(),            // Q
+///     SMatrix::zeros(),               // P initial
+///     SMatrix::zeros()                // x initial
+/// );
+/// // Create a new linear measurement for velocity
+/// let mut m1 = LinearMeasurement::new(
+///     Matrix1x2::new(0.0, 1.0),       // H1
+///     SMatrix::identity(),            // R1
+///     Matrix1::new(10.0),             // z1
+/// );
+/// let mut m2 = LinearMeasurement::new(
+///     Matrix2::identity(),            // H2
+///     SMatrix::identity(),            // R2
+///     Vector2::new(0.0,0.0),          // z2
+/// );
+///
+/// // Run 100 timesteps, x is 'real' value.
+/// for x in 0..100u32 {
+///     // predict using system model
+///     kalman.predict();
+///     // update with velocity measurement
+///     kalman.update(&m1);
+///     // update with position and velocity every 10 samples
+///     if (x.rem_euclid(10) == 0){
+///         // slightly wrong velocity measurement
+///         m2.set_measurement(Vector2::new(x as f64, 9.5));
+///         kalman.update(&m2);
+///     }
+/// }
+/// ```
+///
 #[derive(Debug)]
 #[allow(non_snake_case)]
 pub struct Kalman<T, const N: usize, const U: usize, S> {
     /// Covariance
     P: SMatrix<T, N, N>,
-    /// The associated [System] containing the state vector x
+    /// The associated [System] containing the state vector x.
+    /// This is public so changes can be made on the fly, which may be useful
+    /// for custom systems.
     pub system: S,
 }
 
@@ -135,6 +206,9 @@ where
     T: RealField + Copy,
 {
     #[allow(non_snake_case)]
+    /// Create a new linear kalman filter with a system model with inputs.
+    /// State transition F, process noise Q, control B and state x
+    /// and covariance P initial conditions.
     pub fn new_with_input(
         F: SMatrix<T, N, N>,
         Q: SMatrix<T, N, N>,
@@ -155,6 +229,9 @@ where
     T: RealField + Copy,
 {
     #[allow(non_snake_case)]
+    /// Create a new linear kalman filter with a system model without inputs.
+    /// State transition F, process noise Q and state x
+    /// and covariance P initial conditions.
     pub fn new(
         F: SMatrix<T, N, N>,
         Q: SMatrix<T, N, N>,
@@ -187,7 +264,38 @@ where
     }
 }
 
-/// Kalman filter with a fixed shape measurement
+/// Kalman filter with a fixed shape measurement. Useful for systems with a single sensor,
+/// or multiple sensors sampled at the same rate that perform a single update step. Use
+/// [Kalman] for sensors with different sample rates.
+///
+/// ## Usage
+/// There are a few constuctors that simplify the creation of the underlying [Kalman] filter,
+/// its [System] and the fixed [Measurement]:
+/// - Linear system without inputs, linear measurement: [Kalman1M::new].
+/// - Linear system with inputs, linear measurement: [Kalman1M::new_with_input].
+/// - Non-linear system with inputs, linear measurement: [Kalman1M::new_ekf_with_input].
+///
+/// Or for more configuration, use [Kalman1M::new_custom].
+///
+/// The [precict](Kalman1M::predict) and [update](Kalman1M::update) functions are then used to run
+/// the filter.
+/// ```
+/// use kfilter::kalman::{Kalman1M, KalmanPredict};
+/// use nalgebra::{Matrix1, Matrix1x2, Matrix2, SMatrix};
+/// // Create a new 2 state kalman filter
+/// let mut k = Kalman1M::new(
+///     Matrix2::new(1.0, 0.1, 0.0, 1.0),   // F
+///     SMatrix::identity(),                // Q
+///     Matrix1x2::new(1.0, 0.0),           // H
+///     SMatrix::identity(),                // R
+///     SMatrix::zeros(),                   // x
+/// );
+/// // Run 100 timesteps
+/// for i in 0..100 {
+///     k.predict();
+///     k.update(Matrix1::new(i as f64));
+/// }
+/// ```
 pub struct Kalman1M<T, const N: usize, const U: usize, const M: usize, S, ME> {
     kalman: Kalman<T, N, U, S>,
     measurement: ME,
@@ -199,6 +307,7 @@ where
     S: System<T, N, U>,
     ME: Measurement<T, N, M>,
 {
+    /// Create a new Kalman filter based on supplied [System] and [Measurement] types.
     pub fn new_custom(system: S, initial_covariance: SMatrix<T, N, N>, measurement: ME) -> Self {
         Self {
             kalman: Kalman::new_custom(system, initial_covariance),
@@ -225,7 +334,7 @@ where
     }
 }
 
-/// Implement predict for Kalman1M with input
+/// Implement predict for [Kalman1M] with input
 impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanPredictInput<T, N, U>
     for Kalman1M<T, N, U, M, S, ME>
 where
@@ -238,7 +347,7 @@ where
     }
 }
 
-/// Implement predict for Kalman1M with no input
+/// Implement predict for [Kalman1M] with no input
 impl<T, const N: usize, const M: usize, S, ME> KalmanPredict<T, N> for Kalman1M<T, N, 0, M, S, ME>
 where
     T: RealField + Copy,
