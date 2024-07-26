@@ -8,7 +8,7 @@ license = "MIT"
 repository = "https://github.com/dw-labs-org/kfilter"
 keywords = [
     "kalman_filter",
-    "extended_kalman_filter",
+    "extended_kalman",
     "state_estimation",
     "estimator",
     "filtering",
