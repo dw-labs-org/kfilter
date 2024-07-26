@@ -12,7 +12,6 @@ keywords = [
     "State estimation",
     "Estimator",
     "Filtering",
-    "Linear quadratic estimator",
 ]
 categories = [
     "aerospace",
