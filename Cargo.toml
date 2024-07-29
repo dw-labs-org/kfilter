@@ -1,6 +1,6 @@
 [package]
 name = "kfilter"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 authors = ["Dom Wilson"]
 description = "A no-std implementation of the Kalman and Extended Kalman Filter."
