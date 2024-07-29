@@ -46,7 +46,7 @@ pub trait KalmanPredictInput<T, const N: usize, const U: usize> {
 /// Optimally updates using the Kalman gain.
 pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, M>> {
     /// Optimally update state and covariance based on the measurement
-    fn update(&mut self, measurement: &ME);
+    fn update(&mut self, measurement: &ME) -> &SVector<T, N>;
 }
 
 /// Representation of the Kalman filter. This is the base type that can be interacted
@@ -185,7 +185,7 @@ impl<
     > KalmanUpdate<T, N, M, ME> for Kalman<T, N, U, S>
 {
     #[allow(non_snake_case)]
-    fn update(&mut self, measurement: &ME) {
+    fn update(&mut self, measurement: &ME) -> &SVector<T, N> {
         // innovation
         let y = measurement.innovation(self.system.state());
         // innovation covariance
@@ -197,6 +197,7 @@ impl<
         *self.system.state_mut() += K * y;
         // covariance update
         self.P = (SMatrix::identity() - K * measurement.observation()) * self.P;
+        self.state()
     }
 }
 
@@ -367,9 +368,10 @@ where
     ME: Measurement<T, N, M>,
 {
     /// Update the state with a new measurement
-    pub fn update(&mut self, z: SVector<T, M>) {
+    pub fn update(&mut self, z: SVector<T, M>) -> &SVector<T, N> {
         self.measurement.set_measurement(z);
         self.kalman.update(&self.measurement);
+        self.kalman.state()
     }
 }
 
