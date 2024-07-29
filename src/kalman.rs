@@ -309,6 +309,14 @@ pub struct Kalman1M<T, const N: usize, const U: usize, const M: usize, S, ME> {
     measurement: ME,
 }
 
+/// Single linear measurement, linear system Kalman filter, no input.
+pub type Kalman1MLinearNoInput<T, const N: usize, const M: usize> =
+    Kalman1M<T, N, 0, M, LinearNoInputSystem<T, N>, LinearMeasurement<T, N, M>>;
+
+/// Single linear measurement, linear system Kalman filter, with input.
+pub type Kalman1MLinear<T, const N: usize, const U: usize, const M: usize> =
+    Kalman1M<T, N, U, M, LinearSystem<T, N, U>, LinearMeasurement<T, N, M>>;
+
 /// Custom system and measurement
 impl<T, const N: usize, const U: usize, const M: usize, S, ME> Kalman1M<T, N, U, M, S, ME>
 where
@@ -386,8 +394,7 @@ where
 }
 
 /// Linear system with input
-impl<T, const N: usize, const U: usize, const M: usize>
-    Kalman1M<T, N, U, M, LinearSystem<T, N, U>, LinearMeasurement<T, N, M>>
+impl<T, const N: usize, const U: usize, const M: usize> Kalman1MLinear<T, N, U, M>
 where
     T: RealField + Copy,
 {
@@ -410,8 +417,7 @@ where
 }
 
 /// Linear system without input
-impl<T, const N: usize, const M: usize>
-    Kalman1M<T, N, 0, M, LinearNoInputSystem<T, N>, LinearMeasurement<T, N, M>>
+impl<T, const N: usize, const M: usize> Kalman1MLinearNoInput<T, N, M>
 where
     T: RealField + Copy,
 {
