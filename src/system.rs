@@ -215,6 +215,16 @@ impl<T: RealField, const N: usize, const U: usize> NonLinearSystem<T, N, U> {
             step_fn,
         }
     }
+
+    /// Set a new transition matrix, also updating the transpose
+    pub fn set_transition(&mut self, transition: SMatrix<T, N, N>) {
+        self.F_t = transition.transpose();
+        self.F = transition;
+    }
+    /// Get a mutable reference to the process covariance matrix
+    pub fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N> {
+        &mut self.Q
+    }
 }
 
 impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
