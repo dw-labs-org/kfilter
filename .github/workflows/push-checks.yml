@@ -1,0 +1,10 @@
+name: Push Checks
+on: push
+jobs:
+  Commit-message:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout branch
+      - uses: actions/checkout@v4
+      # Check commit message
+      - uses: webiny/action-conventional-commits@v1.3.0
