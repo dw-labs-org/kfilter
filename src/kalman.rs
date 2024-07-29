@@ -17,13 +17,15 @@ use crate::{
 /// Base trait for [Kalman] or wrappers around it. Allows viewing the state and covariance
 /// and modifying the covariance.
 /// Modifying the covariance can be necessary if it becomes non symmetric.
-pub trait KalmanFilter<T, const N: usize> {
+pub trait KalmanFilter<T, const N: usize, S> {
     /// Get a reference to the state
     fn state(&self) -> &SVector<T, N>;
     /// Get a reference to the covariance
     fn covariance(&self) -> &SMatrix<T, N, N>;
     /// Get a mutable reference to the covariance
     fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N>;
+    /// Get a mutable reference to the system
+    fn system_mut(&mut self) -> &mut S;
 }
 
 /// Trait for a prediction of the next state for a system with no input.
@@ -133,7 +135,7 @@ where
 }
 
 /// Implement [KalmanFilter] for state and covariance access
-impl<T, const N: usize, const U: usize, S> KalmanFilter<T, N> for Kalman<T, N, U, S>
+impl<T, const N: usize, const U: usize, S> KalmanFilter<T, N, S> for Kalman<T, N, U, S>
 where
     S: System<T, N, U>,
 {
@@ -147,6 +149,10 @@ where
 
     fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N> {
         &mut self.P
+    }
+
+    fn system_mut(&mut self) -> &mut S {
+        &mut self.system
     }
 }
 
@@ -318,7 +324,7 @@ where
     }
 }
 
-impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanFilter<T, N>
+impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanFilter<T, N, S>
     for Kalman1M<T, N, U, M, S, ME>
 where
     S: System<T, N, U>,
@@ -333,6 +339,10 @@ where
 
     fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N> {
         self.kalman.covariance_mut()
+    }
+
+    fn system_mut(&mut self) -> &mut S {
+        self.kalman.system_mut()
     }
 }
 
