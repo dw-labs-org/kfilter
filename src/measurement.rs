@@ -30,7 +30,8 @@ pub trait Measurement<T, const N: usize, const M: usize> {
 /// A linear measurement defined by the observation matrix H and noise matrix R.
 /// Implements the innovation function y = z - H * x.
 #[derive(Debug, Clone)]
-pub struct LinearMeasurement<T, const N: usize, const M: usize> {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct LinearMeasurement<T: RealField, const N: usize, const M: usize> {
     /// Observation / measurement. Can be modifed directly to set new value.
     pub z: SVector<T, M>,
     H: SMatrix<T, M, N>,

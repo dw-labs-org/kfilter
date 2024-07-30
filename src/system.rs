@@ -42,7 +42,8 @@ pub trait NoInputSystem<T, const N: usize>: System<T, N, 0> {
 /// Defined by the transition matrix F, control matrix B and covariance matrix Q.
 #[allow(non_snake_case)]
 #[derive(Debug, Clone)]
-pub struct LinearSystem<T, const N: usize, const U: usize> {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct LinearSystem<T: RealField, const N: usize, const U: usize> {
     x: SVector<T, N>,
     F: SMatrix<T, N, N>,
     F_t: SMatrix<T, N, N>,
@@ -117,7 +118,8 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
 /// Defined by the transition matrix F and covariance matrix Q.
 #[allow(non_snake_case)]
 #[derive(Debug, Clone)]
-pub struct LinearNoInputSystem<T, const N: usize> {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct LinearNoInputSystem<T: RealField, const N: usize> {
     x: SVector<T, N>,
     F: SMatrix<T, N, N>,
     F_t: SMatrix<T, N, N>,
@@ -181,7 +183,8 @@ impl<T: RealField + Copy, const N: usize> NoInputSystem<T, N> for LinearNoInputS
 
 /// Type returned from [StepFunction].
 #[derive(Debug, Clone)]
-pub struct StepReturn<T, const N: usize> {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct StepReturn<T: RealField, const N: usize> {
     /// The new state (x).
     pub state: SVector<T, N>,
     /// The jacobian of the transition (F).
@@ -200,7 +203,7 @@ pub type StepFunction<T, const N: usize, const U: usize> =
 /// Defined by a [StepFunction] that performs state transition and jacobian and covariance calculation.
 #[allow(non_snake_case)]
 #[derive(Debug, Clone)]
-pub struct NonLinearSystem<T, const N: usize, const U: usize> {
+pub struct NonLinearSystem<T: RealField, const N: usize, const U: usize> {
     /// System state
     x: SVector<T, N>,
     /// Process Covariance, updated after step_fn() call.

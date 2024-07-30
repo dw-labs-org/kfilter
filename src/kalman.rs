@@ -110,7 +110,8 @@ pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, 
 ///
 #[allow(non_snake_case)]
 #[derive(Debug, Clone)]
-pub struct Kalman<T, const N: usize, const U: usize, S> {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Kalman<T: RealField, const N: usize, const U: usize, S> {
     /// Covariance
     P: SMatrix<T, N, N>,
     /// The associated [System] containing the state vector x.
@@ -119,7 +120,7 @@ pub struct Kalman<T, const N: usize, const U: usize, S> {
     pub system: S,
 }
 
-impl<T, const N: usize, const U: usize, S> Kalman<T, N, U, S>
+impl<T: RealField, const N: usize, const U: usize, S> Kalman<T, N, U, S>
 where
     S: System<T, N, U>,
 {
@@ -133,7 +134,7 @@ where
 }
 
 /// Implement [KalmanFilter] for state and covariance access
-impl<T, const N: usize, const U: usize, S> KalmanFilter<T, N, S> for Kalman<T, N, U, S>
+impl<T: RealField, const N: usize, const U: usize, S> KalmanFilter<T, N, S> for Kalman<T, N, U, S>
 where
     S: System<T, N, U>,
 {
@@ -302,7 +303,8 @@ where
 /// }
 /// ```
 #[derive(Debug, Clone)]
-pub struct Kalman1M<T, const N: usize, const U: usize, const M: usize, S, ME> {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Kalman1M<T: RealField, const N: usize, const U: usize, const M: usize, S, ME> {
     kalman: Kalman<T, N, U, S>,
     measurement: ME,
 }
@@ -316,7 +318,8 @@ pub type Kalman1MLinear<T, const N: usize, const U: usize, const M: usize> =
     Kalman1M<T, N, U, M, LinearSystem<T, N, U>, LinearMeasurement<T, N, M>>;
 
 /// Custom system and measurement
-impl<T, const N: usize, const U: usize, const M: usize, S, ME> Kalman1M<T, N, U, M, S, ME>
+impl<T: RealField, const N: usize, const U: usize, const M: usize, S, ME>
+    Kalman1M<T, N, U, M, S, ME>
 where
     S: System<T, N, U>,
     ME: Measurement<T, N, M>,
@@ -330,7 +333,7 @@ where
     }
 }
 
-impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanFilter<T, N, S>
+impl<T: RealField, const N: usize, const U: usize, const M: usize, S, ME> KalmanFilter<T, N, S>
     for Kalman1M<T, N, U, M, S, ME>
 where
     S: System<T, N, U>,
