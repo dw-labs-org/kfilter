@@ -268,3 +268,11 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
         self.state()
     }
 }
+
+/// Convert a state matrix from continuous time (A) to discrete time (F) using zero-order-hold
+pub fn zero_order_hold<T: RealField, const N: usize>(
+    state_matrix: SMatrix<T, N, N>,
+    timestep: T,
+) -> SMatrix<T, N, N> {
+    SMatrix::identity() + state_matrix * timestep
+}
