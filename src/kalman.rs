@@ -2,6 +2,8 @@
 //! performs state predictions based on a generic [System] and updates the state based on
 //! a [Measurement].
 
+use core::usize;
+
 use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
@@ -119,6 +121,15 @@ pub struct Kalman<T: RealField, const N: usize, const U: usize, S> {
     /// for custom systems.
     pub system: S,
 }
+
+/// [Kalman] with a [LinearSystem].
+pub type KalmanLinear<T, const N: usize, const U: usize> = Kalman<T, N, U, LinearSystem<T, N, U>>;
+
+/// [Kalman] with a [LinearNoInputSystem].
+pub type KalmanLinearNoInput<T, const N: usize> = Kalman<T, N, 0, LinearNoInputSystem<T, N>>;
+
+/// Extended Kalman Filter. [Kalman] with a [NonLinearSystem].
+pub type EKF<T, const N: usize, const U: usize> = Kalman<T, N, U, NonLinearSystem<T, N, U>>;
 
 impl<T: RealField, const N: usize, const U: usize, S> Kalman<T, N, U, S>
 where
@@ -310,12 +321,19 @@ pub struct Kalman1M<T: RealField, const N: usize, const U: usize, const M: usize
 }
 
 /// Single linear measurement, linear system Kalman filter, no input.
+/// [Kalman1M] with [LinearNoInputSystem] and [LinearMeasurement].
 pub type Kalman1MLinearNoInput<T, const N: usize, const M: usize> =
     Kalman1M<T, N, 0, M, LinearNoInputSystem<T, N>, LinearMeasurement<T, N, M>>;
 
 /// Single linear measurement, linear system Kalman filter, with input.
+/// [Kalman1M] with [LinearSystem] and [LinearMeasurement].
 pub type Kalman1MLinear<T, const N: usize, const U: usize, const M: usize> =
     Kalman1M<T, N, U, M, LinearSystem<T, N, U>, LinearMeasurement<T, N, M>>;
+
+/// Single linear measurement, nonlinear system Kalman filter, with input.
+/// [Kalman1M] with [NonLinearSystem] and [LinearMeasurement].
+pub type EKF1M<T, const N: usize, const U: usize, const M: usize> =
+    Kalman1M<T, N, U, M, NonLinearSystem<T, N, U>, LinearMeasurement<T, N, M>>;
 
 /// Custom system and measurement
 impl<T: RealField, const N: usize, const U: usize, const M: usize, S, ME>
