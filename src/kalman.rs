@@ -2,8 +2,6 @@
 //! performs state predictions based on a generic [System] and updates the state based on
 //! a [Measurement].
 
-use core::usize;
-
 use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
