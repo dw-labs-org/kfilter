@@ -149,9 +149,7 @@ impl<T: RealField + Copy, const N: usize> LinearNoInputSystem<T, N> {
     }
 }
 
-impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
-    for LinearNoInputSystem<T, N>
-{
+impl<T: RealField + Copy, const N: usize> System<T, N, 0> for LinearNoInputSystem<T, N> {
     fn transition(&self) -> &SMatrix<T, N, N> {
         &self.F
     }
