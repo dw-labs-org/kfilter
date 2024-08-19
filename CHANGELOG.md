@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/dw-labs-org/kfilter/compare/v0.3.0...v0.3.1) (2024-08-19)
+
+
+### Bug Fixes
+
+* system impl for LinearNoInputSystem U=0 ([9545a2e](https://github.com/dw-labs-org/kfilter/commit/9545a2e75ad7de87ff8a8f4e6f707dd27f256a2e)), closes [#40](https://github.com/dw-labs-org/kfilter/issues/40)
+
 ## [0.3.0](https://github.com/dw-labs-org/kfilter/compare/v0.2.2...v0.3.0) (2024-07-30)
 
 
