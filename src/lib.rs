@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 //! A no-std  implementation of the [Kalman](https://en.wikipedia.org/wiki/Kalman_filter)
 //!  and [Extended Kalman Filter](https://en.wikipedia.org/wiki/Extended_Kalman_filter)
