@@ -8,4 +8,6 @@ cargo clippy -- -D warnings
 cargo build --features std
 cargo build --features serde
 cargo build --features defmt
+cargo build --examples
 cargo test
+( cd examples/defmt ; cargo build )
