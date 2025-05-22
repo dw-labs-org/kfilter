@@ -200,6 +200,13 @@ impl<
         ME: Measurement<T, N, M>,
     > KalmanUpdate<T, N, M, ME> for Kalman<T, N, U, S>
 {
+
+    /// # Panics
+    ///
+    /// Panics if the innovation covariance matrix is not invertible.
+    /// 
+    /// can in particular be caused by `measurement.covariance()` not returning a positive semi-definite matrix
+    #[track_caller]
     #[allow(non_snake_case)]
     fn update(&mut self, measurement: &ME) -> &SVector<T, N> {
         // innovation
@@ -207,8 +214,18 @@ impl<
         // innovation covariance
         let S = measurement.observation() * self.P * measurement.observation_transpose()
             + measurement.covariance();
+        // handle the buggy case where S is not invertible
+        let Some(S_Inverse) = S.try_inverse() else {
+            assert!(measurement.covariance().try_inverse().is_some(),
+r#"the covariance matrix of the input measurement noise was not invertible,
+but it must be positive semi-definite for the system to be updated"#);
+            assert!(&measurement.observation().transpose() == measurement.observation_transpose(), 
+r#"Measurement was incorrectly implemented by the input :
+observation_transpose() does not return the transpose of observation()"#);
+            panic!("The innovation covariance matrix could not be inverted")
+        };
         // Optimal gain
-        let K = self.P * measurement.observation_transpose() * S.try_inverse().unwrap();
+        let K = self.P * measurement.observation_transpose() * S_Inverse;
         // state update
         *self.system.state_mut() += K * y;
         // covariance update
@@ -483,5 +500,30 @@ where
             kalman: Kalman::new_ekf_with_input(step_fn, x_initial, P_initial),
             measurement: LinearMeasurement::new(H, R, SMatrix::zeros()),
         }
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use nalgebra::Matrix1;
+
+    use crate::{measurement::LinearMeasurement, kalman::KalmanUpdate};
+    
+    #[test]
+    fn does_not_panic() {
+        let mut k = super::KalmanLinear::new_with_input(Matrix1::new(1.0), Matrix1::new(0.0), Matrix1::new(0.0), Matrix1::new(0.0), Matrix1::new(100.0));
+
+        k.update(&LinearMeasurement::new(Matrix1::identity(), Matrix1::identity(), Matrix1::new(0.0)));
+
+    }
+    
+    #[test]
+    #[should_panic]
+    fn does_panic() {
+        let mut k = super::KalmanLinear::new_with_input(Matrix1::new(1.0), Matrix1::new(0.0), Matrix1::new(0.0), Matrix1::new(0.0), Matrix1::zeros());
+
+        k.update(&LinearMeasurement::new(Matrix1::identity(), Matrix1::zeros(), Matrix1::new(0.0)));
+
     }
 }
