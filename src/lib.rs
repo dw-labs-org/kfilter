@@ -23,5 +23,7 @@
 pub mod kalman;
 pub mod measurement;
 pub mod system;
+pub mod ukf;
 
 pub use kalman::*;
+pub use ukf::*;
