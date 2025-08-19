@@ -536,7 +536,7 @@ where
 impl<T, const N: usize, const MAX_POINTS: usize, S> KalmanPredict<T, N> for UnscentedKalman<T, N, 0, MAX_POINTS, S>
 where
     T: RealField + Copy,
-    S: NoInputSystem<T, N> + Clone,
+    S: NoInputSystem<T, N>,
 {
     #[track_caller]
     fn predict(&mut self) -> &SVector<T, N> {
@@ -569,7 +569,7 @@ where
 impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> KalmanPredictInput<T, N, U> for UnscentedKalman<T, N, U, MAX_POINTS, S>
 where
     T: RealField + Copy,
-    S: InputSystem<T, N, U> + Clone,
+    S: InputSystem<T, N, U>,
 {
     #[track_caller]
     fn predict(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
@@ -599,9 +599,9 @@ where
 impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> UnscentedKalman<T, N, U, MAX_POINTS, S>
 where
     T: RealField + Copy,
-    S: System<T, N, U> + Clone,
+    S: System<T, N, U>,
 {
-    /// Internal UKF prediction with input
+    /// Internal UKF prediction with input - optimized without cloning
     #[track_caller]
     fn predict_ukf_with_input_internal(&mut self, u: SVector<T, U>) -> Result<(), &'static str>
     where
@@ -610,18 +610,40 @@ where
         // Generate sigma points from current state
         let sigma_points = self.generate_sigma_points()?;
         
+        // Get system matrices once for efficiency
+        let f_matrix = *self.system.transition();
+        let b_matrix = if let Some(linear_sys) = self.try_get_linear_system() {
+            Some(*linear_sys)
+        } else {
+            None
+        };
+        
         // Transform sigma points through system dynamics with input
         let mut transformed = [SVector::<T, N>::zeros(); MAX_POINTS];
         
-        // For each sigma point, apply the system step function
+        // For each sigma point, apply the system dynamics
         for i in 0..sigma_points.num_points {
-            // Create a temporary copy of the system to step through
-            let mut temp_system = self.system.clone();
-            *temp_system.state_mut() = sigma_points.points_buffer[i];
+            let sigma_point = &sigma_points.points_buffer[i];
             
-            // Step the system with input
-            temp_system.step(u);
-            transformed[i] = *temp_system.state();
+            // Use linear approximation if available, otherwise fall back to system stepping
+            if let Some(b) = &b_matrix {
+                // Linear system: x_next = F * x + B * u
+                transformed[i] = &f_matrix * sigma_point + b * u;
+            } else {
+                // For non-linear systems, we need to step through the system
+                // Store original state temporarily
+                let original_state = *self.system.state();
+                
+                // Set sigma point as current state
+                *self.system.state_mut() = *sigma_point;
+                
+                // Step the system with input
+                self.system.step(u);
+                transformed[i] = *self.system.state();
+                
+                // Restore original state for next iteration
+                *self.system.state_mut() = original_state;
+            }
         }
         
         // Compute predicted mean
@@ -630,10 +652,8 @@ where
         // Compute predicted covariance
         let mut predicted_cov = sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
         
-        // Add process noise (get it from a single step to ensure consistency)
-        let mut temp_system = self.system.clone();
-        temp_system.step(u);
-        let q = temp_system.covariance();
+        // Add process noise
+        let q = self.system.covariance();
         predicted_cov += q;
         
         // Update state and covariance
@@ -642,7 +662,17 @@ where
         
         Ok(())
     }
-
+    
+    /// Helper to try extracting linear system control matrix for optimization
+    fn try_get_linear_system(&self) -> Option<&SMatrix<T, N, U>>
+    where
+        S: InputSystem<T, N, U>,
+    {
+        // This would need to be implemented based on actual system types
+        // For now, return None to use the fallback approach
+        None
+    }
+    
     /// Internal UKF prediction with error handling
     #[track_caller]
     fn predict_ukf_internal<F>(&mut self, process_fn: F) -> Result<(), &'static str>
@@ -714,7 +744,7 @@ where
         self.system.state()
     }
     
-    /// Update using unscented transform with simplified covariance update
+    /// Update using unscented transform with measurement function
     #[track_caller]
     #[allow(non_snake_case)]
     pub fn update_ukf<F, const M: usize>(
@@ -766,6 +796,23 @@ where
         self.P = &self.P - &K * &cross_cov.transpose();
         self.P = self.P.symmetric_part();
         
+        self.system.state()
+    }
+    
+    /// Batch update with multiple measurements
+    #[track_caller]
+    pub fn update_ukf_batch<F, const M: usize>(
+        &mut self,
+        measurement_fn: F,
+        measurements: &[SVector<T, M>],
+        measurement_noise: &SMatrix<T, M, M>,
+    ) -> &SVector<T, N>
+    where
+        F: Fn(&SVector<T, N>) -> SVector<T, M>,
+    {
+        for measurement in measurements {
+            self.update_ukf(&measurement_fn, measurement, measurement_noise);
+        }
         self.system.state()
     }
     
