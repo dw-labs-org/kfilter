@@ -152,19 +152,35 @@ impl<T: RealField + Copy, const N: usize> SigmaPoints<T, N> {
         self.points_buffer[..self.num_points].iter()
     }
     
-    /// Apply function to all sigma points (optimized version)
+    /// Apply function to all sigma points with external buffer (stack-safe)
+    #[inline]
+    pub fn transform_into<F, const M: usize>(
+        &self, 
+        f: F, 
+        result: &mut [SVector<T, M>; MAX_SIGMA_POINTS]
+    ) 
+    where
+        F: Fn(&SVector<T, N>) -> SVector<T, M>,
+    {
+        // Process only active points
+        for i in 0..self.num_points {
+            result[i] = f(&self.points_buffer[i]);
+        }
+        
+        // Zero out unused entries for safety
+        for i in self.num_points..MAX_SIGMA_POINTS {
+            result[i] = SVector::<T, M>::zeros();
+        }
+    }
+    
+    /// Apply function to all sigma points (optimized version) - legacy method
     #[inline]
     pub fn transform<F, const M: usize>(&self, f: F) -> [SVector<T, M>; MAX_SIGMA_POINTS]
     where
         F: Fn(&SVector<T, N>) -> SVector<T, M>,
     {
         let mut result = [SVector::<T, M>::zeros(); MAX_SIGMA_POINTS];
-        
-        // Process only active points
-        for i in 0..self.num_points {
-            result[i] = f(&self.points_buffer[i]);
-        }
-        
+        self.transform_into(f, &mut result);
         result
     }
     
@@ -181,24 +197,20 @@ impl<T: RealField + Copy, const N: usize> SigmaPoints<T, N> {
         mean
     }
     
-    /// Compute weighted covariance with pre-computed differences (performance optimized)
+    /// Compute weighted covariance with optimized memory usage (no intermediate arrays)
     pub fn weighted_covariance_optimized<const M: usize>(
         &self,
         transformed: &[SVector<T, M>; MAX_SIGMA_POINTS],
         mean: &SVector<T, M>,
     ) -> SMatrix<T, M, M> {
-        // Pre-compute differences for reuse
-        let mut diffs: [SVector<T, M>; MAX_SIGMA_POINTS] = [SVector::zeros(); MAX_SIGMA_POINTS];
-        for i in 0..self.num_points {
-            diffs[i] = &transformed[i] - mean;
-        }
+        // Central point with special weight (compute difference on-the-fly)
+        let diff_0 = &transformed[0] - mean;
+        let mut cov = (diff_0 * diff_0.transpose()) * self.weights.cov_0;
         
-        // Central point with special weight
-        let mut cov = (diffs[0] * diffs[0].transpose()) * self.weights.cov_0;
-        
-        // Other points (vectorized)
+        // Other points (compute differences on-the-fly to save memory)
         for i in 1..self.num_points {
-            cov += (&diffs[i] * diffs[i].transpose()) * self.weights.other;
+            let diff_i = &transformed[i] - mean;
+            cov += (diff_i * diff_i.transpose()) * self.weights.other;
         }
         
         // Ensure symmetry (like kfilter does)
@@ -260,6 +272,160 @@ pub type UKFLinear<T, const N: usize, const U: usize> = UnscentedKalman<T, N, U,
 pub type UKF2D<T, const U: usize, S> = UnscentedKalman<T, 2, U, S>;
 /// 3D Unscented Kalman Filter
 pub type UKF3D<T, const U: usize, S> = UnscentedKalman<T, 3, U, S>;
+
+/// UKF variant of Kalman1M for single measurement updates
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct UKF1M<T, const N: usize, const U: usize, const M: usize, S, F>
+where
+    T: RealField + Copy,
+    S: System<T, N, U>,
+    F: Fn(&SVector<T, N>) -> SVector<T, M>,
+{
+    ukf: UnscentedKalman<T, N, U, S>,
+    measurement_fn: F,
+    measurement_noise: SMatrix<T, M, M>,
+}
+
+impl<T, const N: usize, const U: usize, const M: usize, S, F> UKF1M<T, N, U, M, S, F>
+where
+    T: RealField + Copy,
+    S: System<T, N, U>,
+    F: Fn(&SVector<T, N>) -> SVector<T, M>,
+{
+    /// Create new UKF1M with custom system and measurement function
+    pub fn new_custom(
+        system: S,
+        initial_covariance: SMatrix<T, N, N>,
+        measurement_fn: F,
+        measurement_noise: SMatrix<T, M, M>,
+    ) -> Self {
+        Self {
+            ukf: UnscentedKalman::new_custom(system, initial_covariance),
+            measurement_fn,
+            measurement_noise,
+        }
+    }
+    
+    /// Update with measurement
+    #[track_caller]
+    pub fn update(&mut self, measurement: SVector<T, M>) -> &SVector<T, N> {
+        self.ukf.update_ukf(&self.measurement_fn, &measurement, &self.measurement_noise)
+    }
+}
+
+/// UKF1M type aliases following kfilter patterns
+/// UKF1M with LinearNoInputSystem (using function pointer for simplicity)
+pub type UKF1MLinearNoInput<T, const N: usize, const M: usize> = UKF1M<T, N, 0, M, LinearNoInputSystem<T, N>, fn(&SVector<T, N>) -> SVector<T, M>>;
+/// UKF1M with LinearSystem (using function pointer for simplicity)
+pub type UKF1MLinear<T, const N: usize, const U: usize, const M: usize> = UKF1M<T, N, U, M, LinearSystem<T, N, U>, fn(&SVector<T, N>) -> SVector<T, M>>;
+
+/// Implement KalmanFilter trait for UKF1M
+impl<T, const N: usize, const U: usize, const M: usize, S, F> KalmanFilter<T, N, S> for UKF1M<T, N, U, M, S, F>
+where
+    T: RealField + Copy,
+    S: System<T, N, U>,
+    F: Fn(&SVector<T, N>) -> SVector<T, M>,
+{
+    #[inline]
+    fn state(&self) -> &SVector<T, N> {
+        self.ukf.state()
+    }
+
+    #[inline]
+    fn covariance(&self) -> &SMatrix<T, N, N> {
+        self.ukf.covariance()
+    }
+
+    #[inline]
+    fn covariance_mut(&mut self) -> &mut SMatrix<T, N, N> {
+        self.ukf.covariance_mut()
+    }
+
+    #[inline]
+    fn system_mut(&mut self) -> &mut S {
+        self.ukf.system_mut()
+    }
+}
+
+/// Implement KalmanPredict for UKF1M without input
+impl<T, const N: usize, const M: usize, S, F> KalmanPredict<T, N> for UKF1M<T, N, 0, M, S, F>
+where
+    T: RealField + Copy,
+    S: NoInputSystem<T, N>,
+    F: Fn(&SVector<T, N>) -> SVector<T, M>,
+{
+    #[track_caller]
+    fn predict(&mut self) -> &SVector<T, N> {
+        self.ukf.predict()
+    }
+}
+
+/// Implement KalmanPredictInput for UKF1M with input
+impl<T, const N: usize, const U: usize, const M: usize, S, F> KalmanPredictInput<T, N, U> for UKF1M<T, N, U, M, S, F>
+where
+    T: RealField + Copy,
+    S: InputSystem<T, N, U>,
+    F: Fn(&SVector<T, N>) -> SVector<T, M>,
+{
+    #[track_caller]
+    fn predict(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
+        self.ukf.predict(u)
+    }
+}
+
+/// Linear UKF1M constructors
+impl<T, const N: usize, const M: usize> UKF1MLinearNoInput<T, N, M>
+where
+    T: RealField + Copy,
+{
+    /// Create UKF1M with linear system without inputs
+    #[allow(non_snake_case)]
+    pub fn new(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        x_initial: SVector<T, N>,
+        P_initial: SMatrix<T, N, N>,
+        measurement_fn: fn(&SVector<T, N>) -> SVector<T, M>,
+        measurement_noise: SMatrix<T, M, M>,
+    ) -> Self {
+        Self {
+            ukf: UnscentedKalman::new_custom(
+                LinearNoInputSystem::new(F, Q, x_initial),
+                P_initial,
+            ),
+            measurement_fn,
+            measurement_noise,
+        }
+    }
+}
+
+impl<T, const N: usize, const U: usize, const M: usize> UKF1MLinear<T, N, U, M>
+where
+    T: RealField + Copy,
+{
+    /// Create UKF1M with linear system with inputs
+    #[allow(non_snake_case)]
+    pub fn new_with_input(
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        B: SMatrix<T, N, U>,
+        x_initial: SVector<T, N>,
+        P_initial: SMatrix<T, N, N>,
+        measurement_fn: fn(&SVector<T, N>) -> SVector<T, M>,
+        measurement_noise: SMatrix<T, M, M>,
+    ) -> Self {
+        Self {
+            ukf: UnscentedKalman::new_custom(
+                LinearSystem::new(F, Q, B, x_initial),
+                P_initial,
+            ),
+            measurement_fn,
+            measurement_noise,
+        }
+    }
+}
 
 impl<T, const N: usize, const U: usize, S> UnscentedKalman<T, N, U, S>
 where
@@ -487,8 +653,9 @@ where
         // Generate sigma points (fail-fast like kfilter)
         let sigma_points = self.generate_sigma_points();
         
-        // Transform through measurement function
-        let measurement_transformed = sigma_points.transform(&measurement_fn);
+        // Use stack-safe transform with external buffer
+        let mut measurement_transformed = [SVector::<T, M>::zeros(); MAX_SIGMA_POINTS];
+        sigma_points.transform_into(&measurement_fn, &mut measurement_transformed);
         
         // Compute predicted measurement
         let predicted_measurement = sigma_points.weighted_mean(&measurement_transformed);
@@ -518,12 +685,9 @@ where
         let innovation = measurement - &predicted_measurement;
         *self.system.state_mut() += &K * &innovation;
         
-        // Update covariance using standard form (like kfilter)
-        let I = SMatrix::<T, N, N>::identity();
-        // Simplified update (kfilter style)
-        // Note: For UKF, we use an approximation similar to EKF
-        let K_times_S = &K * &innovation_cov;
-        self.P = (&I - &K_times_S * K.transpose()) * &self.P;
+        // Update covariance using simplified approximation for UKF
+        // P = P - K * cross_cov^T (simplified form for numerical stability)
+        self.P = &self.P - &K * &cross_cov.transpose();
         
         // Ensure symmetry (like kfilter does)
         self.P = self.P.symmetric_part();
@@ -671,5 +835,51 @@ mod tests {
         
         let sigma_points = SigmaPoints::generate(&mean, &cov, &params);
         assert_eq!(sigma_points.len(), 2 * LARGE_N + 1);
+    }
+    
+    #[test]
+    fn test_ukf1m_basic_functionality() {
+        type T = f64;
+        
+        let mut ukf1m = UKF1MLinearNoInput::<T, 2, 2>::new(
+            Matrix2::new(1.0, 0.1, 0.0, 1.0), // F
+            Matrix2::identity() * 0.01,        // Q
+            Vector2::zeros(),                  // x_initial
+            Matrix2::identity(),               // P_initial
+            |state| *state,                    // Direct observation
+            Matrix2::identity() * 0.1,         // measurement_noise
+        );
+        
+        // Test prediction
+        ukf1m.predict();
+        
+        // Test update
+        let measurement = Vector2::new(1.0, 0.5);
+        let _result = ukf1m.update(measurement);
+        
+        // State should be accessible
+        let _state = ukf1m.state();
+    }
+    
+    #[test]
+    fn test_ukf_nonlinear_measurement() {
+        type T = f64;
+        
+        let mut ukf = UKFLinearNoInput::<T, 2>::new(
+            Matrix2::new(1.0, 0.1, 0.0, 1.0), // F
+            Matrix2::identity() * 0.01,        // Q
+            Vector2::new(1.0, 0.0),            // x_initial
+            Matrix2::identity(),               // P_initial
+        );
+        
+        let measurement = Vector2::new(1.0, 0.5);
+        let measurement_noise = Matrix2::identity() * 0.1;
+        
+        // Test with nonlinear measurement function (squared)
+        let _result = ukf.update_ukf(
+            |state| Vector2::new(state[0] * state[0], state[1] * state[1]),
+            &measurement,
+            &measurement_noise,
+        );
     }
 }
