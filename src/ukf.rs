@@ -169,7 +169,7 @@ impl<T: RealField + Copy, const N: usize, const MAX_POINTS: usize> SigmaPoints<T
         let sqrt_scale = scale.sqrt();
         
         // Primary: Cholesky decomposition
-        if let Some(chol) = matrix.clone().cholesky() {
+        if let Some(chol) = matrix.cholesky() {
             return Ok(chol.l() * sqrt_scale);
         }
         
