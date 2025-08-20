@@ -203,22 +203,61 @@ impl<T: RealField + Copy> UnscentedParameters<T> {
         self.alpha * self.alpha * (n_f + self.kappa) - n_f
     }
 
-    /// Calculate all weights at once for efficiency
+    /// Calculate all weights with numerical stability checks
     #[inline]
     pub fn compute_weights(&self, n: usize) -> UKFWeights<T> {
         let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
         let lambda = self.lambda(n);
         let two = T::from_f64(2.0).unwrap_or_else(|| T::one() + T::one());
         
-        let w_mean_0 = lambda / (n_f + lambda);
+        let denominator = n_f + lambda;
+        
+        // Check for problematic denominator (too close to zero)
+        let min_abs_denom = T::from_f64(1e-10).unwrap_or_else(|| T::one() / T::from_f64(1e10).unwrap_or(T::one()));
+        
+        if denominator.abs() < min_abs_denom {
+            // Use modified kappa to avoid division by near-zero
+            let safe_kappa = if lambda < T::zero() {
+                // If lambda is negative, adjust kappa to make denominator reasonable
+                T::from_f64(1e-6).unwrap_or_else(|| T::one() / T::from_f64(1e6).unwrap_or(T::one()))
+            } else {
+                self.kappa + T::from_f64(1e-6).unwrap_or_else(|| T::one() / T::from_f64(1e6).unwrap_or(T::one()))
+            };
+            
+            let safe_lambda = self.alpha * self.alpha * (n_f + safe_kappa) - n_f;
+            let safe_denominator = n_f + safe_lambda;
+            
+            let w_mean_0 = safe_lambda / safe_denominator;
+            let w_cov_0 = w_mean_0 + (T::one() - self.alpha * self.alpha + self.beta);
+            let w_other = T::one() / (two * safe_denominator);
+            
+            return UKFWeights {
+                mean_0: w_mean_0,
+                cov_0: w_cov_0,
+                other: w_other,
+            };
+        }
+        
+        // Normal case - use standard UKF weight equations
+        let w_mean_0 = lambda / denominator;
         let w_cov_0 = w_mean_0 + (T::one() - self.alpha * self.alpha + self.beta);
-        let w_other = T::one() / (two * (n_f + lambda));
+        let w_other = T::one() / (two * denominator);
         
         UKFWeights {
             mean_0: w_mean_0,
             cov_0: w_cov_0,
             other: w_other,
         }
+    }
+    
+    /// Check if parameters will cause numerical issues for given dimension
+    pub fn is_numerically_stable(&self, n: usize) -> bool {
+        let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
+        let lambda = self.lambda(n);
+        let denominator = n_f + lambda;
+        
+        let min_abs_denom = T::from_f64(1e-10).unwrap_or_else(|| T::one() / T::from_f64(1e10).unwrap_or(T::one()));
+        denominator.abs() >= min_abs_denom
     }
 }
 
