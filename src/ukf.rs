@@ -4,13 +4,13 @@
 use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
-    system::{System, NoInputSystem, InputSystem, LinearNoInputSystem, LinearSystem},
     kalman::{KalmanFilter, KalmanPredict, KalmanPredictInput},
+    system::{InputSystem, LinearNoInputSystem, LinearSystem, NoInputSystem, System},
 };
 
 /// Fixed-size sigma point configurations using const generics
 /// These work around Rust's limitation with generic associated constants
-
+///
 /// Small systems (up to 4 dimensions, 9 sigma points)
 pub const SMALL_MAX_POINTS: usize = 9;
 /// Sigma points for small systems (up to 4 dimensions)
@@ -35,7 +35,7 @@ pub trait SigmaPointsConfig {
     const MAX_POINTS: usize;
     /// Maximum dimensions supported
     const MAX_DIMENSIONS: usize;
-    
+
     /// Check if given dimensions are supported
     fn check_dimensions<const N: usize>() -> Result<(), UKFError> {
         let required_points = 2 * N + 1;
@@ -79,11 +79,11 @@ impl SigmaPointsConfig for LargeConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UKFError {
     /// Buffer size insufficient for required sigma points
-    InsufficientBufferSize { 
+    InsufficientBufferSize {
         /// Number of sigma points required
-        required: usize, 
+        required: usize,
         /// Number of sigma points available in buffer
-        available: usize 
+        available: usize,
     },
     /// Matrix inversion failed (singular matrix)
     SingularMatrix,
@@ -96,8 +96,15 @@ pub enum UKFError {
 impl core::fmt::Display for UKFError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            UKFError::InsufficientBufferSize { required, available } => {
-                write!(f, "Insufficient buffer size: required {}, available {}", required, available)
+            UKFError::InsufficientBufferSize {
+                required,
+                available,
+            } => {
+                write!(
+                    f,
+                    "Insufficient buffer size: required {}, available {}",
+                    required, available
+                )
             }
             UKFError::SingularMatrix => write!(f, "Singular matrix encountered"),
             UKFError::InvalidParameters => write!(f, "Invalid UKF parameters"),
@@ -126,14 +133,14 @@ pub struct UKFPerformanceStats {
 impl UKFPerformanceStats {
     /// Calculate prediction success rate
     pub fn prediction_success_rate(&self) -> f64 {
-        if self.prediction_count == 0 { 
-            1.0 
-        } else { 
-            1.0 - (self.sigma_generation_failures as f64 / self.prediction_count as f64) 
+        if self.prediction_count == 0 {
+            1.0
+        } else {
+            1.0 - (self.sigma_generation_failures as f64 / self.prediction_count as f64)
         }
     }
-    
-    /// Calculate update success rate 
+
+    /// Calculate update success rate
     pub fn update_success_rate(&self) -> f64 {
         if self.update_count == 0 {
             1.0
@@ -141,7 +148,7 @@ impl UKFPerformanceStats {
             1.0 - (self.matrix_inversion_failures as f64 / self.update_count as f64)
         }
     }
-    
+
     /// Reset all statistics
     pub fn reset(&mut self) {
         *self = Self::default();
@@ -167,26 +174,27 @@ impl<T: RealField + Copy> UnscentedParameters<T> {
     pub fn new(alpha: T, beta: T, kappa: T) -> UKFResult<Self> {
         let zero = T::zero();
         let one = T::one();
-        
+
         if alpha <= zero || alpha > one {
             return Err(UKFError::InvalidParameters);
         }
         if beta < zero {
             return Err(UKFError::InvalidParameters);
         }
-        
+
         Ok(Self { alpha, beta, kappa })
     }
-    
+
     /// Create default UKF parameters
-    pub fn default() -> Self {
+    pub fn new_default() -> Self {
         Self {
-            alpha: T::from_f64(1e-3).unwrap_or_else(|| T::one() / T::from_f64(1000.0).unwrap_or(T::one())),
+            alpha: T::from_f64(1e-3)
+                .unwrap_or_else(|| T::one() / T::from_f64(1000.0).unwrap_or(T::one())),
             beta: T::from_f64(2.0).unwrap_or_else(|| T::one() + T::one()),
             kappa: T::zero(),
         }
     }
-    
+
     /// Create parameters optimized for high-dimensional systems
     pub fn high_dimensional(n: usize) -> Self {
         Self {
@@ -209,55 +217,65 @@ impl<T: RealField + Copy> UnscentedParameters<T> {
         let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
         let lambda = self.lambda(n);
         let two = T::from_f64(2.0).unwrap_or_else(|| T::one() + T::one());
-        
+
         let denominator = n_f + lambda;
-        
+
         // Check for problematic denominator (too close to zero)
-        let min_abs_denom = T::from_f64(1e-10).unwrap_or_else(|| T::one() / T::from_f64(1e10).unwrap_or(T::one()));
-        
+        let min_abs_denom =
+            T::from_f64(1e-10).unwrap_or_else(|| T::one() / T::from_f64(1e10).unwrap_or(T::one()));
+
         if denominator.abs() < min_abs_denom {
             // Use modified kappa to avoid division by near-zero
             let safe_kappa = if lambda < T::zero() {
                 // If lambda is negative, adjust kappa to make denominator reasonable
                 T::from_f64(1e-6).unwrap_or_else(|| T::one() / T::from_f64(1e6).unwrap_or(T::one()))
             } else {
-                self.kappa + T::from_f64(1e-6).unwrap_or_else(|| T::one() / T::from_f64(1e6).unwrap_or(T::one()))
+                self.kappa
+                    + T::from_f64(1e-6)
+                        .unwrap_or_else(|| T::one() / T::from_f64(1e6).unwrap_or(T::one()))
             };
-            
+
             let safe_lambda = self.alpha * self.alpha * (n_f + safe_kappa) - n_f;
             let safe_denominator = n_f + safe_lambda;
-            
+
             let w_mean_0 = safe_lambda / safe_denominator;
             let w_cov_0 = w_mean_0 + (T::one() - self.alpha * self.alpha + self.beta);
             let w_other = T::one() / (two * safe_denominator);
-            
+
             return UKFWeights {
                 mean_0: w_mean_0,
                 cov_0: w_cov_0,
                 other: w_other,
             };
         }
-        
+
         // Normal case - use standard UKF weight equations
         let w_mean_0 = lambda / denominator;
         let w_cov_0 = w_mean_0 + (T::one() - self.alpha * self.alpha + self.beta);
         let w_other = T::one() / (two * denominator);
-        
+
         UKFWeights {
             mean_0: w_mean_0,
             cov_0: w_cov_0,
             other: w_other,
         }
     }
-    
+
     /// Check if parameters will cause numerical issues for given dimension
     pub fn is_numerically_stable(&self, n: usize) -> bool {
         let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
         let lambda = self.lambda(n);
         let denominator = n_f + lambda;
-        
-        let min_abs_denom = T::from_f64(1e-10).unwrap_or_else(|| T::one() / T::from_f64(1e10).unwrap_or(T::one()));
+
+        let min_abs_denom =
+            T::from_f64(1e-10).unwrap_or_else(|| T::one() / T::from_f64(1e10).unwrap_or(T::one()));
         denominator.abs() >= min_abs_denom
+    }
+}
+
+impl<T: RealField + Copy> Default for UnscentedParameters<T> {
+    fn default() -> Self {
+        Self::new_default()
     }
 }
 
@@ -312,7 +330,7 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
         params: &UnscentedParameters<T>,
     ) -> UKFResult<Self> {
         let required_points = 2 * N + 1;
-        
+
         if required_points <= SMALL_MAX_POINTS {
             Self::new_small(mean, covariance, params)
         } else if required_points <= MEDIUM_MAX_POINTS {
@@ -326,37 +344,52 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
             })
         }
     }
-    
+
     /// Create small storage
     fn new_small(
         mean: &SVector<T, N>,
         covariance: &SMatrix<T, N, N>,
         params: &UnscentedParameters<T>,
     ) -> UKFResult<Self> {
-        let (points, weights, count) = Self::generate_sigma_points_internal::<SMALL_MAX_POINTS>(mean, covariance, params)?;
-        Ok(Self::Small { points, weights, count })
+        let (points, weights, count) =
+            Self::generate_sigma_points_internal::<SMALL_MAX_POINTS>(mean, covariance, params)?;
+        Ok(Self::Small {
+            points,
+            weights,
+            count,
+        })
     }
-    
+
     /// Create medium storage
     fn new_medium(
         mean: &SVector<T, N>,
         covariance: &SMatrix<T, N, N>,
         params: &UnscentedParameters<T>,
     ) -> UKFResult<Self> {
-        let (points, weights, count) = Self::generate_sigma_points_internal::<MEDIUM_MAX_POINTS>(mean, covariance, params)?;
-        Ok(Self::Medium { points, weights, count })
+        let (points, weights, count) =
+            Self::generate_sigma_points_internal::<MEDIUM_MAX_POINTS>(mean, covariance, params)?;
+        Ok(Self::Medium {
+            points,
+            weights,
+            count,
+        })
     }
-    
+
     /// Create large storage
     fn new_large(
         mean: &SVector<T, N>,
         covariance: &SMatrix<T, N, N>,
         params: &UnscentedParameters<T>,
     ) -> UKFResult<Self> {
-        let (points, weights, count) = Self::generate_sigma_points_internal::<LARGE_MAX_POINTS>(mean, covariance, params)?;
-        Ok(Self::Large { points, weights, count })
+        let (points, weights, count) =
+            Self::generate_sigma_points_internal::<LARGE_MAX_POINTS>(mean, covariance, params)?;
+        Ok(Self::Large {
+            points,
+            weights,
+            count,
+        })
     }
-    
+
     /// Internal sigma point generation
     fn generate_sigma_points_internal<const MAX_POINTS: usize>(
         mean: &SVector<T, N>,
@@ -370,47 +403,45 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
                 available: MAX_POINTS,
             });
         }
-        
+
         let n_f = T::from_usize(N).unwrap_or_else(|| T::zero());
         let lambda = params.lambda(N);
-        
+
         // Robust Cholesky decomposition
         let sqrt_matrix = Self::robust_matrix_sqrt(covariance, n_f + lambda)?;
-        
+
         let mut points = [SVector::<T, N>::zeros(); MAX_POINTS];
-        
+
         // Central point
         points[0] = *mean;
-        
+
         // Positive and negative sigma points
         for i in 0..N {
             let offset = sqrt_matrix.column(i).into_owned();
-            points[i + 1] = mean + &offset;
-            points[i + 1 + N] = mean - &offset;
+            points[i + 1] = mean + offset;
+            points[i + 1 + N] = mean - offset;
         }
-        
+
         let weights = params.compute_weights(N);
-        
+
         Ok((points, weights, num_points))
     }
-    
+
     /// Robust matrix square root computation
-    fn robust_matrix_sqrt(
-        matrix: &SMatrix<T, N, N>, 
-        scale: T
-    ) -> UKFResult<SMatrix<T, N, N>> {
+    fn robust_matrix_sqrt(matrix: &SMatrix<T, N, N>, scale: T) -> UKFResult<SMatrix<T, N, N>> {
         let sqrt_scale = scale.sqrt();
-        
+
         // Primary: Cholesky decomposition
         if let Some(chol) = matrix.cholesky() {
             return Ok(chol.l() * sqrt_scale);
         }
-        
+
         // Fallback: Use identity matrix scaled appropriately
-        let min_eigenvalue = T::from_f64(1e-6).unwrap_or_else(|| T::one() / T::from_f64(1e6).unwrap_or(T::one()));
+        let min_eigenvalue =
+            T::from_f64(1e-6).unwrap_or_else(|| T::one() / T::from_f64(1e6).unwrap_or(T::one()));
         Ok(SMatrix::<T, N, N>::identity() * (min_eigenvalue * sqrt_scale))
     }
-    
+
     /// Get number of active sigma points
     pub fn len(&self) -> usize {
         match self {
@@ -419,7 +450,12 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
             Self::Large { count, .. } => *count,
         }
     }
-    
+
+    /// Check if storage is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Get weights
     pub fn weights(&self) -> &UKFWeights<T> {
         match self {
@@ -428,14 +464,18 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
             Self::Large { weights, .. } => weights,
         }
     }
-    
+
     /// Apply transformation function to all sigma points
     pub fn transform<F, const M: usize>(&self, f: F) -> SigmaPointsStorage<T, M>
     where
         F: Fn(&SVector<T, N>) -> SVector<T, M>,
     {
         match self {
-            Self::Small { points, weights, count } => {
+            Self::Small {
+                points,
+                weights,
+                count,
+            } => {
                 let mut transformed_points = [SVector::<T, M>::zeros(); SMALL_MAX_POINTS];
                 for i in 0..*count {
                     transformed_points[i] = f(&points[i]);
@@ -445,8 +485,12 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
                     weights: *weights,
                     count: *count,
                 }
-            },
-            Self::Medium { points, weights, count } => {
+            }
+            Self::Medium {
+                points,
+                weights,
+                count,
+            } => {
                 let mut transformed_points = [SVector::<T, M>::zeros(); MEDIUM_MAX_POINTS];
                 for i in 0..*count {
                     transformed_points[i] = f(&points[i]);
@@ -456,8 +500,12 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
                     weights: *weights,
                     count: *count,
                 }
-            },
-            Self::Large { points, weights, count } => {
+            }
+            Self::Large {
+                points,
+                weights,
+                count,
+            } => {
                 let mut transformed_points = [SVector::<T, M>::zeros(); LARGE_MAX_POINTS];
                 for i in 0..*count {
                     transformed_points[i] = f(&points[i]);
@@ -467,26 +515,29 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
                     weights: *weights,
                     count: *count,
                 }
-            },
+            }
         }
     }
-    
+
     /// Compute weighted mean
-    pub fn weighted_mean<const M: usize>(&self, transformed: &SigmaPointsStorage<T, M>) -> UKFResult<SVector<T, M>> {
+    pub fn weighted_mean<const M: usize>(
+        &self,
+        transformed: &SigmaPointsStorage<T, M>,
+    ) -> UKFResult<SVector<T, M>> {
         match (self, transformed) {
-            (Self::Small { weights, count, .. }, SigmaPointsStorage::Small { points, .. }) => {
-                Ok(Self::compute_weighted_mean_internal(points, weights, *count))
-            },
-            (Self::Medium { weights, count, .. }, SigmaPointsStorage::Medium { points, .. }) => {
-                Ok(Self::compute_weighted_mean_internal(points, weights, *count))
-            },
-            (Self::Large { weights, count, .. }, SigmaPointsStorage::Large { points, .. }) => {
-                Ok(Self::compute_weighted_mean_internal(points, weights, *count))
-            },
+            (Self::Small { weights, count, .. }, SigmaPointsStorage::Small { points, .. }) => Ok(
+                Self::compute_weighted_mean_internal(points, weights, *count),
+            ),
+            (Self::Medium { weights, count, .. }, SigmaPointsStorage::Medium { points, .. }) => Ok(
+                Self::compute_weighted_mean_internal(points, weights, *count),
+            ),
+            (Self::Large { weights, count, .. }, SigmaPointsStorage::Large { points, .. }) => Ok(
+                Self::compute_weighted_mean_internal(points, weights, *count),
+            ),
             _ => Err(UKFError::NumericalInstability), // Mismatched storage types
         }
     }
-    
+
     /// Internal weighted mean computation
     fn compute_weighted_mean_internal<const M: usize, const MAX_POINTS: usize>(
         points: &[SVector<T, M>; MAX_POINTS],
@@ -494,11 +545,11 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
         count: usize,
     ) -> SVector<T, M> {
         let mut mean = points[0] * weights.mean_0;
-        
-        for i in 1..count {
-            mean += &points[i] * weights.other;
+
+        for point in points.iter().take(count).skip(1) {
+            mean += point * weights.other;
         }
-        
+
         mean
     }
 }
@@ -529,85 +580,84 @@ impl<T: RealField + Copy, const N: usize, const MAX_POINTS: usize> SigmaPoints<T
                 available: MAX_POINTS,
             });
         }
-        
+
         let n_f = T::from_usize(N).unwrap_or_else(|| T::zero());
         let lambda = params.lambda(N);
-        
+
         // Robust Cholesky decomposition
         let sqrt_matrix = Self::robust_matrix_sqrt(covariance, n_f + lambda)?;
-        
+
         let mut points_buffer = [SVector::<T, N>::zeros(); MAX_POINTS];
-        
+
         // Central point
         points_buffer[0] = *mean;
-        
+
         // Positive and negative sigma points
         for i in 0..N {
             let offset = sqrt_matrix.column(i).into_owned();
-            points_buffer[i + 1] = mean + &offset;
-            points_buffer[i + 1 + N] = mean - &offset;
+            points_buffer[i + 1] = mean + offset;
+            points_buffer[i + 1 + N] = mean - offset;
         }
-        
+
         let weights = params.compute_weights(N);
-        
-        Ok(Self { 
+
+        Ok(Self {
             points_buffer,
             weights,
             num_points,
         })
     }
-    
+
     /// Robust matrix square root computation with fallback
-    fn robust_matrix_sqrt(
-        matrix: &SMatrix<T, N, N>, 
-        scale: T
-    ) -> UKFResult<SMatrix<T, N, N>> {
+    fn robust_matrix_sqrt(matrix: &SMatrix<T, N, N>, scale: T) -> UKFResult<SMatrix<T, N, N>> {
         let sqrt_scale = scale.sqrt();
-        
+
         // Primary: Cholesky decomposition
         if let Some(chol) = matrix.cholesky() {
             return Ok(chol.l() * sqrt_scale);
         }
-        
+
         // Fallback: Use identity matrix scaled appropriately
         // This is a safe fallback that ensures positive definiteness
         let min_eigenvalue = T::from_f64(1e-6).unwrap();
         Ok(SMatrix::<T, N, N>::identity() * (min_eigenvalue * sqrt_scale))
     }
-    
+
     /// Get number of sigma points
     #[inline]
     pub fn len(&self) -> usize {
         self.num_points
     }
-    
+
+    /// Check if sigma points is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.num_points == 0
+    }
+
     /// Get iterator over active sigma points
     #[inline]
     pub fn points_iter(&self) -> impl Iterator<Item = &SVector<T, N>> {
         self.points_buffer[..self.num_points].iter()
     }
-    
+
     /// Apply function to all sigma points with external buffer
     #[inline]
-    pub fn transform_into<F, const M: usize>(
-        &self, 
-        f: F, 
-        result: &mut [SVector<T, M>; MAX_POINTS]
-    ) 
+    pub fn transform_into<F, const M: usize>(&self, f: F, result: &mut [SVector<T, M>; MAX_POINTS])
     where
         F: Fn(&SVector<T, N>) -> SVector<T, M>,
     {
         // Process only active points
-        for i in 0..self.num_points {
-            result[i] = f(&self.points_buffer[i]);
+        for (i, point) in self.points_buffer.iter().enumerate().take(self.num_points) {
+            result[i] = f(point);
         }
-        
+
         // Zero out unused entries for safety
-        for i in self.num_points..MAX_POINTS {
-            result[i] = SVector::<T, M>::zeros();
+        for result_item in result.iter_mut().take(MAX_POINTS).skip(self.num_points) {
+            *result_item = SVector::<T, M>::zeros();
         }
     }
-    
+
     /// Apply function to all sigma points
     #[inline]
     pub fn transform<F, const M: usize>(&self, f: F) -> [SVector<T, M>; MAX_POINTS]
@@ -618,19 +668,22 @@ impl<T: RealField + Copy, const N: usize, const MAX_POINTS: usize> SigmaPoints<T
         self.transform_into(f, &mut result);
         result
     }
-    
+
     /// Compute weighted mean of transformed points
     #[inline]
-    pub fn weighted_mean<const M: usize>(&self, transformed: &[SVector<T, M>; MAX_POINTS]) -> SVector<T, M> {
+    pub fn weighted_mean<const M: usize>(
+        &self,
+        transformed: &[SVector<T, M>; MAX_POINTS],
+    ) -> SVector<T, M> {
         let mut mean = transformed[0] * self.weights.mean_0;
-        
-        for i in 1..self.num_points {
-            mean += &transformed[i] * self.weights.other;
+
+        for transformed_point in transformed.iter().take(self.num_points).skip(1) {
+            mean += transformed_point * self.weights.other;
         }
-        
+
         mean
     }
-    
+
     /// Compute weighted covariance with enhanced numerical stability
     pub fn weighted_covariance_stable<const M: usize>(
         &self,
@@ -638,21 +691,21 @@ impl<T: RealField + Copy, const N: usize, const MAX_POINTS: usize> SigmaPoints<T
         mean: &SVector<T, M>,
     ) -> SMatrix<T, M, M> {
         let mut cov = SMatrix::<T, M, M>::zeros();
-        
+
         // Central point with special weight
-        let diff_0 = &transformed[0] - mean;
+        let diff_0 = transformed[0] - mean;
         cov += (diff_0 * diff_0.transpose()) * self.weights.cov_0;
-        
+
         // Other points
-        for i in 1..self.num_points {
-            let diff_i = &transformed[i] - mean;
+        for transformed_point in transformed.iter().take(self.num_points).skip(1) {
+            let diff_i = transformed_point - mean;
             cov += (diff_i * diff_i.transpose()) * self.weights.other;
         }
-        
+
         // Ensure symmetry
         cov.symmetric_part()
     }
-    
+
     /// Compute cross-covariance between state and measurement
     pub fn cross_covariance<const M: usize>(
         &self,
@@ -661,19 +714,24 @@ impl<T: RealField + Copy, const N: usize, const MAX_POINTS: usize> SigmaPoints<T
         measurement_mean: &SVector<T, M>,
     ) -> SMatrix<T, N, M> {
         let mut cross_cov = SMatrix::<T, N, M>::zeros();
-        
+
         // Central point
-        let state_diff0 = &self.points_buffer[0] - state_mean;
-        let meas_diff0 = &measurement_transformed[0] - measurement_mean;
+        let state_diff0 = self.points_buffer[0] - state_mean;
+        let meas_diff0 = measurement_transformed[0] - measurement_mean;
         cross_cov += (state_diff0 * meas_diff0.transpose()) * self.weights.cov_0;
-        
+
         // Other points
-        for i in 1..self.num_points {
-            let state_diff = &self.points_buffer[i] - state_mean;
-            let meas_diff = &measurement_transformed[i] - measurement_mean;
+        for (i, meas_transformed) in measurement_transformed
+            .iter()
+            .enumerate()
+            .take(self.num_points)
+            .skip(1)
+        {
+            let state_diff = self.points_buffer[i + 1] - state_mean;
+            let meas_diff = meas_transformed - measurement_mean;
             cross_cov += (state_diff * meas_diff.transpose()) * self.weights.other;
         }
-        
+
         cross_cov
     }
 }
@@ -699,11 +757,14 @@ where
 
 /// Type aliases with different buffer sizes
 /// Small UKF for memory-constrained systems
-pub type UKFSmall<T, const N: usize, const U: usize, S> = UnscentedKalman<T, N, U, SMALL_MAX_POINTS, S>;
+pub type UKFSmall<T, const N: usize, const U: usize, S> =
+    UnscentedKalman<T, N, U, SMALL_MAX_POINTS, S>;
 /// Medium UKF for typical applications
-pub type UKFMedium<T, const N: usize, const U: usize, S> = UnscentedKalman<T, N, U, MEDIUM_MAX_POINTS, S>;
+pub type UKFMedium<T, const N: usize, const U: usize, S> =
+    UnscentedKalman<T, N, U, MEDIUM_MAX_POINTS, S>;
 /// Large UKF for high-dimensional systems
-pub type UKFLarge<T, const N: usize, const U: usize, S> = UnscentedKalman<T, N, U, LARGE_MAX_POINTS, S>;
+pub type UKFLarge<T, const N: usize, const U: usize, S> =
+    UnscentedKalman<T, N, U, LARGE_MAX_POINTS, S>;
 
 // Convenient type aliases for linear systems
 /// Small UKF for linear systems without input
@@ -714,11 +775,14 @@ pub type UKFLinearNoInputMedium<T, const N: usize> = UKFMedium<T, N, 0, LinearNo
 pub type UKFLinearNoInputLarge<T, const N: usize> = UKFLarge<T, N, 0, LinearNoInputSystem<T, N>>;
 
 /// Small UKF for linear systems with input
-pub type UKFLinearSmall<T, const N: usize, const U: usize> = UKFSmall<T, N, U, LinearSystem<T, N, U>>;
+pub type UKFLinearSmall<T, const N: usize, const U: usize> =
+    UKFSmall<T, N, U, LinearSystem<T, N, U>>;
 /// Medium UKF for linear systems with input
-pub type UKFLinearMedium<T, const N: usize, const U: usize> = UKFMedium<T, N, U, LinearSystem<T, N, U>>;
+pub type UKFLinearMedium<T, const N: usize, const U: usize> =
+    UKFMedium<T, N, U, LinearSystem<T, N, U>>;
 /// Large UKF for linear systems with input
-pub type UKFLinearLarge<T, const N: usize, const U: usize> = UKFLarge<T, N, U, LinearSystem<T, N, U>>;
+pub type UKFLinearLarge<T, const N: usize, const U: usize> =
+    UKFLarge<T, N, U, LinearSystem<T, N, U>>;
 
 // Default aliases for backward compatibility
 /// Default UKF for linear systems without input (medium-sized)
@@ -732,6 +796,12 @@ pub struct UKFBuilder<T: RealField + Copy> {
     params: UnscentedParameters<T>,
 }
 
+impl<T: RealField + Copy> Default for UKFBuilder<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: RealField + Copy> UKFBuilder<T> {
     /// Create a new builder with default parameters
     pub fn new() -> Self {
@@ -739,13 +809,13 @@ impl<T: RealField + Copy> UKFBuilder<T> {
             params: UnscentedParameters::default(),
         }
     }
-    
+
     /// Set custom UKF parameters
     pub fn with_params(mut self, params: UnscentedParameters<T>) -> Self {
         self.params = params;
         self
     }
-    
+
     /// Build a linear UKF without input (medium-sized)
     #[allow(non_snake_case)]
     pub fn build_linear_no_input<const N: usize>(
@@ -761,7 +831,7 @@ impl<T: RealField + Copy> UKFBuilder<T> {
             self.params,
         )
     }
-    
+
     /// Build a linear UKF with input (medium-sized)
     #[allow(non_snake_case)]
     pub fn build_linear_with_input<const N: usize, const U: usize>(
@@ -792,7 +862,8 @@ where
     stats: UKFPerformanceStats,
 }
 
-impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> MonitoredUKF<T, N, U, MAX_POINTS, S>
+impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S>
+    MonitoredUKF<T, N, U, MAX_POINTS, S>
 where
     T: RealField + Copy,
     S: System<T, N, U>,
@@ -804,27 +875,27 @@ where
             stats: UKFPerformanceStats::default(),
         }
     }
-    
+
     /// Get reference to the inner UKF
     pub fn inner(&self) -> &UnscentedKalman<T, N, U, MAX_POINTS, S> {
         &self.inner
     }
-    
+
     /// Get mutable reference to the inner UKF
     pub fn inner_mut(&mut self) -> &mut UnscentedKalman<T, N, U, MAX_POINTS, S> {
         &mut self.inner
     }
-    
+
     /// Get performance statistics
     pub fn stats(&self) -> &UKFPerformanceStats {
         &self.stats
     }
-    
+
     /// Reset performance statistics
     pub fn reset_stats(&mut self) {
         self.stats.reset();
     }
-    
+
     /// Predict with monitoring for systems without input
     pub fn predict_monitored(&mut self) -> &SVector<T, N>
     where
@@ -835,7 +906,7 @@ where
         let result = self.inner.predict();
         result
     }
-    
+
     /// Predict with monitoring for systems with input
     pub fn predict_monitored_with_input(&mut self, u: SVector<T, U>) -> &SVector<T, N>
     where
@@ -846,7 +917,7 @@ where
         let result = self.inner.predict(u);
         result
     }
-    
+
     /// Update with monitoring
     #[allow(non_snake_case)]
     pub fn update_monitored<F, const M: usize>(
@@ -859,23 +930,21 @@ where
         F: Fn(&SVector<T, N>) -> SVector<T, M>,
     {
         self.stats.update_count += 1;
-        
+
         // Try UKF update
         if let Ok(sigma_points) = self.inner.generate_sigma_points() {
             // Transform sigma points through measurement function
             let mut measurement_transformed = [SVector::<T, M>::zeros(); MAX_POINTS];
             sigma_points.transform_into(&measurement_fn, &mut measurement_transformed);
-            
+
             // Compute predicted measurement
             let predicted_measurement = sigma_points.weighted_mean(&measurement_transformed);
-            
+
             // Compute innovation covariance
-            let mut innovation_cov = sigma_points.weighted_covariance_stable(
-                &measurement_transformed,
-                &predicted_measurement,
-            );
+            let mut innovation_cov = sigma_points
+                .weighted_covariance_stable(&measurement_transformed, &predicted_measurement);
             innovation_cov += measurement_noise;
-            
+
             // Try robust inversion
             if let Ok(innovation_cov_inv) = self.inner.robust_matrix_inverse(&innovation_cov) {
                 // Compute cross-covariance
@@ -884,16 +953,16 @@ where
                     &measurement_transformed,
                     &predicted_measurement,
                 );
-                
+
                 // Compute Kalman gain
-                let K = &cross_cov * &innovation_cov_inv;
-                
+                let K = cross_cov * innovation_cov_inv;
+
                 // Update state
-                let innovation = measurement - &predicted_measurement;
-                *self.inner.system.state_mut() += &K * &innovation;
-                
+                let innovation = measurement - predicted_measurement;
+                *self.inner.system.state_mut() += K * innovation;
+
                 // Simplified covariance update for UKF
-                self.inner.P = &self.inner.P - &K * &cross_cov.transpose();
+                self.inner.P -= K * cross_cov.transpose();
                 self.inner.P = self.inner.P.symmetric_part();
             } else {
                 self.stats.matrix_inversion_failures += 1;
@@ -901,12 +970,13 @@ where
         } else {
             self.stats.sigma_generation_failures += 1;
         }
-        
+
         self.inner.system.state()
     }
 }
 
-impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> UnscentedKalman<T, N, U, MAX_POINTS, S>
+impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S>
+    UnscentedKalman<T, N, U, MAX_POINTS, S>
 where
     T: RealField + Copy,
     S: System<T, N, U>,
@@ -915,17 +985,21 @@ where
     #[track_caller]
     pub fn new_custom(system: S, initial_covariance: SMatrix<T, N, N>) -> Self {
         let num_points = 2 * N + 1;
-        assert!(num_points <= MAX_POINTS, 
-            "State dimension {} requires {} sigma points, but only {} available", 
-            N, num_points, MAX_POINTS);
-        
+        assert!(
+            num_points <= MAX_POINTS,
+            "State dimension {} requires {} sigma points, but only {} available",
+            N,
+            num_points,
+            MAX_POINTS
+        );
+
         Self {
             P: initial_covariance,
             system,
             params: UnscentedParameters::default(),
         }
     }
-    
+
     /// Create new UKF with custom parameters
     #[track_caller]
     pub fn new_custom_with_params(
@@ -934,26 +1008,26 @@ where
         params: UnscentedParameters<T>,
     ) -> Self {
         let num_points = 2 * N + 1;
-        assert!(num_points <= MAX_POINTS, 
-            "State dimension {} requires {} sigma points, but only {} available", 
-            N, num_points, MAX_POINTS);
-        
+        assert!(
+            num_points <= MAX_POINTS,
+            "State dimension {} requires {} sigma points, but only {} available",
+            N,
+            num_points,
+            MAX_POINTS
+        );
+
         Self {
             P: initial_covariance,
             system,
             params,
         }
     }
-    
+
     /// Generate sigma points from current state
     #[track_caller]
     #[inline]
     fn generate_sigma_points(&self) -> UKFResult<SigmaPoints<T, N, MAX_POINTS>> {
-        SigmaPoints::generate(
-            self.system.state(),
-            &self.P,
-            &self.params,
-        )
+        SigmaPoints::generate(self.system.state(), &self.P, &self.params)
     }
 }
 
@@ -971,10 +1045,7 @@ where
         x_initial: SVector<T, N>,
         P_initial: SMatrix<T, N, N>,
     ) -> Self {
-        Self::new_custom(
-            LinearNoInputSystem::new(F, Q, x_initial),
-            P_initial,
-        )
+        Self::new_custom(LinearNoInputSystem::new(F, Q, x_initial), P_initial)
     }
 }
 
@@ -991,10 +1062,7 @@ where
         x_initial: SVector<T, N>,
         P_initial: SMatrix<T, N, N>,
     ) -> Self {
-        Self::new_custom(
-            LinearNoInputSystem::new(F, Q, x_initial),
-            P_initial,
-        )
+        Self::new_custom(LinearNoInputSystem::new(F, Q, x_initial), P_initial)
     }
 }
 
@@ -1011,10 +1079,7 @@ where
         x_initial: SVector<T, N>,
         P_initial: SMatrix<T, N, N>,
     ) -> Self {
-        Self::new_custom(
-            LinearNoInputSystem::new(F, Q, x_initial),
-            P_initial,
-        )
+        Self::new_custom(LinearNoInputSystem::new(F, Q, x_initial), P_initial)
     }
 }
 
@@ -1032,10 +1097,7 @@ where
         x_initial: SVector<T, N>,
         P_initial: SMatrix<T, N, N>,
     ) -> Self {
-        Self::new_custom(
-            LinearSystem::new(F, Q, B, x_initial),
-            P_initial,
-        )
+        Self::new_custom(LinearSystem::new(F, Q, B, x_initial), P_initial)
     }
 }
 
@@ -1053,10 +1115,7 @@ where
         x_initial: SVector<T, N>,
         P_initial: SMatrix<T, N, N>,
     ) -> Self {
-        Self::new_custom(
-            LinearSystem::new(F, Q, B, x_initial),
-            P_initial,
-        )
+        Self::new_custom(LinearSystem::new(F, Q, B, x_initial), P_initial)
     }
 }
 
@@ -1074,15 +1133,13 @@ where
         x_initial: SVector<T, N>,
         P_initial: SMatrix<T, N, N>,
     ) -> Self {
-        Self::new_custom(
-            LinearSystem::new(F, Q, B, x_initial),
-            P_initial,
-        )
+        Self::new_custom(LinearSystem::new(F, Q, B, x_initial), P_initial)
     }
 }
 
 /// Implement KalmanFilter trait for UnscentedKalman
-impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> KalmanFilter<T, N, S> for UnscentedKalman<T, N, U, MAX_POINTS, S>
+impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> KalmanFilter<T, N, S>
+    for UnscentedKalman<T, N, U, MAX_POINTS, S>
 where
     T: RealField + Copy,
     S: System<T, N, U>,
@@ -1109,7 +1166,8 @@ where
 }
 
 /// UKF Prediction for systems without input
-impl<T, const N: usize, const MAX_POINTS: usize, S> KalmanPredict<T, N> for UnscentedKalman<T, N, 0, MAX_POINTS, S>
+impl<T, const N: usize, const MAX_POINTS: usize, S> KalmanPredict<T, N>
+    for UnscentedKalman<T, N, 0, MAX_POINTS, S>
 where
     T: RealField + Copy,
     S: NoInputSystem<T, N>,
@@ -1118,31 +1176,32 @@ where
     fn predict(&mut self) -> &SVector<T, N> {
         // Get transition matrix for UKF prediction
         let transition = *self.system.transition();
-        
+
         // Try UKF prediction first
-        match self.predict_ukf_internal(move |state| &transition * state) {
+        match self.predict_ukf_internal(move |state| transition * state) {
             Ok(_) => {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("UKF prediction successful");
-            },
+            }
             Err(_e) => {
                 #[cfg(feature = "defmt")]
                 defmt::warn!("UKF prediction failed, falling back to linear");
-                
+
                 // Fallback to linear prediction
                 self.system.step();
                 let f = self.system.transition();
                 let q = self.system.covariance();
-                self.P = f * &self.P * f.transpose() + q;
+                self.P = f * self.P * f.transpose() + q;
             }
         }
-        
+
         self.system.state()
     }
 }
 
 /// UKF Prediction for systems with input
-impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> KalmanPredictInput<T, N, U> for UnscentedKalman<T, N, U, MAX_POINTS, S>
+impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> KalmanPredictInput<T, N, U>
+    for UnscentedKalman<T, N, U, MAX_POINTS, S>
 where
     T: RealField + Copy,
     S: InputSystem<T, N, U>,
@@ -1154,25 +1213,26 @@ where
             Ok(_) => {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("UKF prediction with input successful");
-            },
+            }
             Err(_e) => {
                 #[cfg(feature = "defmt")]
                 defmt::warn!("UKF prediction with input failed, falling back to linear");
-                
+
                 // Fallback to linear prediction
                 self.system.step(u);
                 let f = self.system.transition();
                 let q = self.system.covariance();
-                self.P = f * &self.P * f.transpose() + q;
+                self.P = f * self.P * f.transpose() + q;
             }
         }
-        
+
         self.system.state()
     }
 }
 
 /// UKF-specific methods
-impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> UnscentedKalman<T, N, U, MAX_POINTS, S>
+impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S>
+    UnscentedKalman<T, N, U, MAX_POINTS, S>
 where
     T: RealField + Copy,
     S: System<T, N, U>,
@@ -1185,60 +1245,60 @@ where
     {
         // Generate sigma points from current state
         let sigma_points = self.generate_sigma_points()?;
-        
+
         // Get system matrices once for efficiency
         let f_matrix = *self.system.transition();
-        let b_matrix = if let Some(linear_sys) = self.try_get_linear_system() {
-            Some(*linear_sys)
-        } else {
-            None
-        };
-        
+        let b_matrix = self.try_get_linear_system().copied();
+
         // Transform sigma points through system dynamics with input
         let mut transformed = [SVector::<T, N>::zeros(); MAX_POINTS];
-        
+
         // For each sigma point, apply the system dynamics
-        for i in 0..sigma_points.num_points {
-            let sigma_point = &sigma_points.points_buffer[i];
-            
+        for (i, sigma_point) in sigma_points
+            .points_buffer
+            .iter()
+            .enumerate()
+            .take(sigma_points.num_points)
+        {
             // Use linear approximation if available, otherwise fall back to system stepping
             if let Some(b) = &b_matrix {
                 // Linear system: x_next = F * x + B * u
-                transformed[i] = &f_matrix * sigma_point + b * u;
+                transformed[i] = f_matrix * sigma_point + b * u;
             } else {
                 // For non-linear systems, we need to step through the system
                 // Store original state temporarily
                 let original_state = *self.system.state();
-                
+
                 // Set sigma point as current state
                 *self.system.state_mut() = *sigma_point;
-                
+
                 // Step the system with input
                 self.system.step(u);
                 transformed[i] = *self.system.state();
-                
+
                 // Restore original state for next iteration
                 *self.system.state_mut() = original_state;
             }
         }
-        
+
         // Compute predicted mean
         let predicted_mean = sigma_points.weighted_mean(&transformed);
-        
+
         // Compute predicted covariance
-        let mut predicted_cov = sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
-        
+        let mut predicted_cov =
+            sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
+
         // Add process noise
         let q = self.system.covariance();
         predicted_cov += q;
-        
+
         // Update state and covariance
         *self.system.state_mut() = predicted_mean;
         self.P = predicted_cov.symmetric_part();
-        
+
         Ok(())
     }
-    
+
     /// Helper to try extracting linear system control matrix for optimization
     fn try_get_linear_system(&self) -> Option<&SMatrix<T, N, U>>
     where
@@ -1248,7 +1308,7 @@ where
         // For now, return None to use the fallback approach
         None
     }
-    
+
     /// Internal UKF prediction with error handling
     #[track_caller]
     fn predict_ukf_internal<F>(&mut self, process_fn: F) -> UKFResult<()>
@@ -1257,41 +1317,42 @@ where
     {
         // Generate sigma points
         let sigma_points = self.generate_sigma_points()?;
-        
+
         // Transform through process function
         let transformed = sigma_points.transform(process_fn);
-        
+
         // Compute predicted mean
         let predicted_mean = sigma_points.weighted_mean(&transformed);
-        
+
         // Compute predicted covariance
-        let mut predicted_cov = sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
-        
+        let mut predicted_cov =
+            sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
+
         // Add process noise
         let q = self.system.covariance();
         predicted_cov += q;
-        
+
         // Update state and covariance
         *self.system.state_mut() = predicted_mean;
         self.P = predicted_cov.symmetric_part();
-        
+
         Ok(())
     }
-    
+
     /// Public API: Predict using unscented transform with custom process function
     #[track_caller]
     pub fn predict_ukf<F>(&mut self, process_fn: F) -> &SVector<T, N>
     where
         F: Fn(&SVector<T, N>) -> SVector<T, N>,
     {
-        if let Err(_) = self.predict_ukf_internal(process_fn) {
+        if self.predict_ukf_internal(process_fn).is_err() {
             #[cfg(feature = "defmt")]
             defmt::warn!("UKF prediction failed, state unchanged");
         }
-        
+
         self.system.state()
     }
-    
+
     /// Public API: Predict using unscented transform with custom process function and input
     #[track_caller]
     pub fn predict_ukf_with_input<F>(&mut self, process_fn: F, u: SVector<T, U>) -> &SVector<T, N>
@@ -1302,17 +1363,18 @@ where
         if let Ok(sigma_points) = self.generate_sigma_points() {
             // Transform sigma points through custom process function with input
             let transformed = sigma_points.transform(|state| process_fn(state, &u));
-            
+
             // Compute predicted mean
             let predicted_mean = sigma_points.weighted_mean(&transformed);
-            
+
             // Compute predicted covariance
-            let mut predicted_cov = sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
-            
+            let mut predicted_cov =
+                sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
+
             // Add process noise
             let q = self.system.covariance();
             predicted_cov += q;
-            
+
             // Update state and covariance
             *self.system.state_mut() = predicted_mean;
             self.P = predicted_cov.symmetric_part();
@@ -1320,10 +1382,10 @@ where
             #[cfg(feature = "defmt")]
             defmt::warn!("UKF prediction with input failed, state unchanged");
         }
-        
+
         self.system.state()
     }
-    
+
     /// Update using unscented transform with measurement function
     #[track_caller]
     #[allow(non_snake_case)]
@@ -1341,17 +1403,15 @@ where
             // Transform sigma points through measurement function
             let mut measurement_transformed = [SVector::<T, M>::zeros(); MAX_POINTS];
             sigma_points.transform_into(&measurement_fn, &mut measurement_transformed);
-            
+
             // Compute predicted measurement
             let predicted_measurement = sigma_points.weighted_mean(&measurement_transformed);
-            
+
             // Compute innovation covariance
-            let mut innovation_cov = sigma_points.weighted_covariance_stable(
-                &measurement_transformed,
-                &predicted_measurement,
-            );
+            let mut innovation_cov = sigma_points
+                .weighted_covariance_stable(&measurement_transformed, &predicted_measurement);
             innovation_cov += measurement_noise;
-            
+
             // Robust inversion
             if let Ok(innovation_cov_inv) = self.robust_matrix_inverse(&innovation_cov) {
                 // Compute cross-covariance
@@ -1360,16 +1420,16 @@ where
                     &measurement_transformed,
                     &predicted_measurement,
                 );
-                
+
                 // Compute Kalman gain
-                let K = &cross_cov * &innovation_cov_inv;
-                
+                let K = cross_cov * innovation_cov_inv;
+
                 // Update state
-                let innovation = measurement - &predicted_measurement;
-                *self.system.state_mut() += &K * &innovation;
-                
+                let innovation = measurement - predicted_measurement;
+                *self.system.state_mut() += K * innovation;
+
                 // Simplified covariance update for UKF
-                self.P = &self.P - &K * &cross_cov.transpose();
+                self.P -= K * cross_cov.transpose();
                 self.P = self.P.symmetric_part();
             } else {
                 #[cfg(feature = "defmt")]
@@ -1379,10 +1439,10 @@ where
             #[cfg(feature = "defmt")]
             defmt::warn!("UKF update failed: could not generate sigma points");
         }
-        
+
         self.system.state()
     }
-    
+
     /// Batch update with multiple measurements
     #[track_caller]
     pub fn update_ukf_batch<F, const M: usize>(
@@ -1399,24 +1459,24 @@ where
         }
         self.system.state()
     }
-    
+
     /// Robust matrix inversion with fallback
     fn robust_matrix_inverse<const M: usize>(
         &self,
-        matrix: &SMatrix<T, M, M>
+        matrix: &SMatrix<T, M, M>,
     ) -> UKFResult<SMatrix<T, M, M>> {
         // Primary: try direct inversion
         if let Some(inv) = matrix.try_inverse() {
             return Ok(inv);
         }
-        
+
         // Fallback: regularized inversion
         let regularization = T::from_f64(1e-6).unwrap();
-        let regularized = matrix + &SMatrix::identity() * regularization;
+        let regularized = matrix + SMatrix::identity() * regularization;
         if let Some(inv) = regularized.try_inverse() {
             return Ok(inv);
         }
-        
+
         Err(UKFError::SingularMatrix)
     }
 }
@@ -1424,29 +1484,29 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Matrix2, Vector2, Matrix3, Vector3};
-    
+    use nalgebra::{Matrix2, Matrix3, Vector2, Vector3};
+
     #[test]
     fn test_ukf_small_configuration() {
         type T = f64;
-        
+
         let mut ukf = UKFLinearNoInputSmall::<T, 2>::new(
             Matrix2::new(1.0, 0.1, 0.0, 1.0), // F
-            Matrix2::identity() * 0.01,        // Q
-            Vector2::zeros(),                  // x_initial
-            Matrix2::identity(),               // P_initial
+            Matrix2::identity() * 0.01,       // Q
+            Vector2::zeros(),                 // x_initial
+            Matrix2::identity(),              // P_initial
         );
-        
+
         // Should work fine for 2D system
         ukf.predict();
         let _state = ukf.state();
     }
-    
+
     #[test]
     #[should_panic(expected = "requires")]
     fn test_ukf_small_configuration_overflow() {
         type T = f64;
-        
+
         // This should panic because SmallConfig only supports limited dimensions
         let _ukf = UKFLinearNoInputSmall::<T, 5>::new(
             SMatrix::<T, 5, 5>::identity(),
@@ -1455,83 +1515,83 @@ mod tests {
             SMatrix::<T, 5, 5>::identity(),
         );
     }
-    
+
     #[test]
     fn test_ukf_prediction_and_update() {
         type T = f64;
-        
+
         let mut ukf = UKFLinearNoInputMedium::<T, 2>::new(
             Matrix2::new(1.0, 0.1, 0.0, 1.0),
             Matrix2::identity() * 0.01,
             Vector2::zeros(),
             Matrix2::identity(),
         );
-        
+
         // Test prediction
         ukf.predict();
-        
+
         // Test update
         let measurement = Vector2::new(1.0, 0.5);
         let measurement_noise = Matrix2::identity() * 0.1;
-        
+
         let _result = ukf.update_ukf(
             |state| *state, // Direct observation
             &measurement,
             &measurement_noise,
         );
     }
-    
+
     #[test]
     fn test_ukf_parameters() {
         type T = f64;
-        
+
         // Valid parameters
         let params = UnscentedParameters::<T>::new(0.5, 2.0, 0.0);
         assert!(params.is_ok());
         let params = params.unwrap();
         assert!((params.alpha - 0.5).abs() < 1e-10);
-        
+
         // Invalid parameters
         let invalid_params = UnscentedParameters::<T>::new(0.0, 2.0, 0.0);
         assert!(invalid_params.is_err());
-        
+
         // Default parameters
-        let params_default = UnscentedParameters::<T>::default();
+        let params_default = UnscentedParameters::<T>::new_default();
         assert!(params_default.alpha > 0.0);
     }
-    
+
     #[test]
     fn test_sigma_points_generation() {
         type T = f64;
-        
+
         let mean = Vector2::new(1.0, 2.0);
         let cov = Matrix2::identity();
         let params = UnscentedParameters::<T>::default();
-        
+
         let sigma_points = SigmaPoints::<T, 2, MEDIUM_MAX_POINTS>::generate(&mean, &cov, &params);
-        
+
         assert!(sigma_points.is_ok());
         let sigma_points = sigma_points.unwrap();
         assert_eq!(sigma_points.len(), 5); // 2*2 + 1
-        
+
         // Central point should be the mean
         assert!((sigma_points.points_buffer[0] - mean).norm() < 1e-10);
     }
-    
+
     #[test]
     fn test_ukf_nonlinear_measurement() {
         type T = f64;
-        
+
         let mut ukf = UKFLinearNoInputMedium::<T, 2>::new(
             Matrix2::new(1.0, 0.1, 0.0, 1.0),
             Matrix2::identity() * 0.01,
             Vector2::new(1.0, 0.0),
             Matrix2::identity(),
         );
-        
+
         let measurement = Vector2::new(1.0, 0.5);
         let measurement_noise = Matrix2::identity() * 0.1;
-        
+
         // Test with nonlinear measurement function
         let _result = ukf.update_ukf(
             |state| Vector2::new(state[0] * state[0], state[1].abs()),
@@ -1539,23 +1599,23 @@ mod tests {
             &measurement_noise,
         );
     }
-    
+
     #[test]
     fn test_ukf_with_input() {
         type T = f64;
-        
+
         let mut ukf = UKFLinearMedium::<T, 2, 1>::new_with_input(
-            Matrix2::new(1.0, 0.1, 0.0, 1.0), // F
+            Matrix2::new(1.0, 0.1, 0.0, 1.0),  // F
             Matrix2::identity() * 0.01,        // Q
             SMatrix::<T, 2, 1>::new(0.0, 1.0), // B (input affects velocity)
             Vector2::zeros(),                  // x_initial
             Matrix2::identity(),               // P_initial
         );
-        
+
         // Test prediction with input
         let input = SVector::<T, 1>::new(0.5);
         ukf.predict(input);
-        
+
         // Test custom UKF prediction with input
         let input2 = SVector::<T, 1>::new(0.3);
         let _result = ukf.predict_ukf_with_input(
@@ -1568,32 +1628,28 @@ mod tests {
             },
             input2,
         );
-        
+
         // Verify state was updated
         assert!(ukf.state().norm() > 0.0);
     }
-    
+
     #[test]
     fn test_ukf_input_system_robustness() {
         type T = f64;
-        
+
         let mut ukf = UKFLinearMedium::<T, 3, 2>::new_with_input(
-            Matrix3::new(
-                1.0, 0.1, 0.0,
-                0.0, 1.0, 0.1, 
-                0.0, 0.0, 1.0
-            ), // F
-            Matrix3::identity() * 0.01,                // Q
-            SMatrix::<T, 3, 2>::new(0.0, 0.0, 1.0, 0.0, 0.0, 1.0), // B
-            Vector3::new(1.0, 0.0, 0.0),               // x_initial
-            Matrix3::identity(),                       // P_initial
+            Matrix3::new(1.0, 0.1, 0.0, 0.0, 1.0, 0.1, 0.0, 0.0, 1.0), // F
+            Matrix3::identity() * 0.01,                                // Q
+            SMatrix::<T, 3, 2>::new(0.0, 0.0, 1.0, 0.0, 0.0, 1.0),     // B
+            Vector3::new(1.0, 0.0, 0.0),                               // x_initial
+            Matrix3::identity(),                                       // P_initial
         );
-        
+
         // Multiple prediction steps with different inputs
         for i in 0..10 {
             let input = SVector::<T, 2>::new(i as f64 * 0.1, (i as f64 * 0.1).sin());
             ukf.predict(input);
-            
+
             // Verify state remains finite
             assert!(ukf.state().iter().all(|x| x.is_finite()));
             assert!(ukf.covariance().iter().all(|x| x.is_finite()));
@@ -1603,27 +1659,27 @@ mod tests {
     #[test]
     fn test_ukf_with_input_prediction_comparison() {
         type T = f64;
-        
+
         // Test that UKF with input produces reasonable results
         let mut ukf = UKFLinearMedium::<T, 2, 1>::new_with_input(
             Matrix2::new(1.0, 0.1, 0.0, 1.0), // F - simple position/velocity model
-            Matrix2::identity() * 0.01,        // Q - small process noise
+            Matrix2::identity() * 0.01,       // Q - small process noise
             SMatrix::<T, 2, 1>::new(0.0, 1.0), // B - input affects velocity only
-            Vector2::new(0.0, 0.0),            // x_initial - start at origin
-            Matrix2::identity() * 0.1,         // P_initial
+            Vector2::new(0.0, 0.0),           // x_initial - start at origin
+            Matrix2::identity() * 0.1,        // P_initial
         );
-        
+
         let initial_state = ukf.state().clone();
-        
+
         // Apply constant acceleration input
         let input = SVector::<T, 1>::new(1.0);
         ukf.predict(input);
-        
+
         let final_state = ukf.state();
-        
+
         // With constant acceleration, velocity should increase
         assert!(final_state[1] > initial_state[1]);
-        
+
         // Position should also change due to initial velocity and acceleration
         // Even if initial velocity is 0, position changes due to dt*v term
         // where v is updated by input
@@ -1633,17 +1689,17 @@ mod tests {
     #[test]
     fn test_ukf_predict_with_custom_nonlinear_function() {
         type T = f64;
-        
+
         let mut ukf = UKFLinearMedium::<T, 2, 1>::new_with_input(
-            Matrix2::new(1.0, 0.1, 0.0, 1.0), // F
+            Matrix2::new(1.0, 0.1, 0.0, 1.0),  // F
             Matrix2::identity() * 0.01,        // Q
             SMatrix::<T, 2, 1>::new(0.0, 1.0), // B
             Vector2::new(1.0, 0.5),            // x_initial
             Matrix2::identity() * 0.1,         // P_initial
         );
-        
+
         let input = SVector::<T, 1>::new(0.2);
-        
+
         // Test custom nonlinear prediction function
         let result = ukf.predict_ukf_with_input(
             |state, input| {
@@ -1651,7 +1707,7 @@ mod tests {
                 let pos = state[0];
                 let vel = state[1];
                 let acc = input[0];
-                
+
                 Vector2::new(
                     pos + vel * 0.1 + 0.005 * vel * vel.abs(), // nonlinear position update
                     vel + acc + 0.01 * pos.signum() * pos * pos, // nonlinear velocity update
@@ -1659,7 +1715,7 @@ mod tests {
             },
             input,
         );
-        
+
         // Verify result is reasonable
         assert!(result.iter().all(|x| x.is_finite()));
         assert!(result.norm() > 0.0);
@@ -1668,17 +1724,17 @@ mod tests {
     #[test]
     fn test_ukf_builder_pattern() {
         type T = f64;
-        
+
         let params = UnscentedParameters::<T>::new(0.1, 2.0, 0.0).unwrap();
         let ukf = UKFBuilder::<T>::new()
             .with_params(params)
             .build_linear_no_input(
                 Matrix2::new(1.0, 0.1, 0.0, 1.0), // F
-                Matrix2::identity() * 0.01,        // Q
-                Vector2::zeros(),                  // x_initial
-                Matrix2::identity(),               // P_initial
+                Matrix2::identity() * 0.01,       // Q
+                Vector2::zeros(),                 // x_initial
+                Matrix2::identity(),              // P_initial
             );
-        
+
         // Verify UKF was created successfully
         assert_eq!(ukf.state(), &Vector2::zeros());
     }
@@ -1686,19 +1742,19 @@ mod tests {
     #[test]
     fn test_monitored_ukf() {
         type T = f64;
-        
+
         let ukf = UKFLinearNoInputMedium::<T, 2>::new(
             Matrix2::new(1.0, 0.1, 0.0, 1.0), // F
-            Matrix2::identity() * 0.01,        // Q
-            Vector2::zeros(),                  // x_initial
-            Matrix2::identity(),               // P_initial
+            Matrix2::identity() * 0.01,       // Q
+            Vector2::zeros(),                 // x_initial
+            Matrix2::identity(),              // P_initial
         );
-        
+
         let mut monitored = MonitoredUKF::new(ukf);
-        
+
         // Test prediction with monitoring
         monitored.predict_monitored();
-        
+
         // Check stats
         let stats = monitored.stats();
         assert_eq!(stats.prediction_count, 1);
@@ -1708,16 +1764,16 @@ mod tests {
     #[test]
     fn test_ukf_error_types() {
         type T = f64;
-        
+
         // Test error handling
         let mean = Vector2::new(1.0, 2.0);
         let cov = Matrix2::identity();
         let params = UnscentedParameters::<T>::default();
-        
+
         // This should work for medium-sized storage
         let result = SigmaPointsStorage::<T, 2>::new_optimal(&mean, &cov, &params);
         assert!(result.is_ok());
-        
+
         let storage = result.unwrap();
         assert_eq!(storage.len(), 5); // 2*2 + 1 sigma points
     }
@@ -1725,20 +1781,20 @@ mod tests {
     #[test]
     fn test_performance_stats() {
         let mut stats = UKFPerformanceStats::default();
-        
+
         // Initially empty
         assert_eq!(stats.prediction_success_rate(), 1.0);
         assert_eq!(stats.update_success_rate(), 1.0);
-        
+
         // Add some operations
         stats.prediction_count = 10;
         stats.sigma_generation_failures = 2;
         stats.update_count = 5;
         stats.matrix_inversion_failures = 1;
-        
+
         assert_eq!(stats.prediction_success_rate(), 0.8); // 8/10
-        assert_eq!(stats.update_success_rate(), 0.8);     // 4/5
-        
+        assert_eq!(stats.update_success_rate(), 0.8); // 4/5
+
         // Reset
         stats.reset();
         assert_eq!(stats.prediction_count, 0);
