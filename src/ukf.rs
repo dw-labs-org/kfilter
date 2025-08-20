@@ -29,6 +29,42 @@ pub type LargeSigmaPoints<T, const N: usize> = SigmaPoints<T, N, 65>;
 /// Default configuration using medium-sized sigma points
 pub type DefaultSigmaPoints<T, const N: usize> = MediumSigmaPoints<T, N>;
 
+/// Structured error type for UKF operations
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UKFError {
+    /// Buffer size insufficient for required sigma points
+    InsufficientBufferSize { 
+        /// Number of sigma points required
+        required: usize, 
+        /// Number of sigma points available in buffer
+        available: usize 
+    },
+    /// Matrix inversion failed (singular matrix)
+    SingularMatrix,
+    /// Invalid UKF parameters
+    InvalidParameters,
+    /// Numerical instability detected
+    NumericalInstability,
+}
+
+impl core::fmt::Display for UKFError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            UKFError::InsufficientBufferSize { required, available } => {
+                write!(f, "Insufficient buffer size: required {}, available {}", required, available)
+            }
+            UKFError::SingularMatrix => write!(f, "Singular matrix encountered"),
+            UKFError::InvalidParameters => write!(f, "Invalid UKF parameters"),
+            UKFError::NumericalInstability => write!(f, "Numerical instability detected"),
+        }
+    }
+}
+
+/// Result type for UKF operations
+pub type UKFResult<T> = Result<T, UKFError>;
+
 /// Parameters for the Unscented Transform with validation
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -128,10 +164,13 @@ impl<T: RealField + Copy, const N: usize, const MAX_POINTS: usize> SigmaPoints<T
         mean: &SVector<T, N>,
         covariance: &SMatrix<T, N, N>,
         params: &UnscentedParameters<T>,
-    ) -> Result<Self, &'static str> {
+    ) -> UKFResult<Self> {
         let num_points = 2 * N + 1;
         if num_points > MAX_POINTS {
-            return Err("Insufficient buffer size for sigma points");
+            return Err(UKFError::InsufficientBufferSize {
+                required: num_points,
+                available: MAX_POINTS,
+            });
         }
         
         let n_f = T::from_usize(N).unwrap();
@@ -165,7 +204,7 @@ impl<T: RealField + Copy, const N: usize, const MAX_POINTS: usize> SigmaPoints<T
     fn robust_matrix_sqrt(
         matrix: &SMatrix<T, N, N>, 
         scale: T
-    ) -> Result<SMatrix<T, N, N>, &'static str> {
+    ) -> UKFResult<SMatrix<T, N, N>> {
         let sqrt_scale = scale.sqrt();
         
         // Primary: Cholesky decomposition
@@ -330,6 +369,60 @@ pub type UKFLinearNoInput<T, const N: usize> = UKFLinearNoInputMedium<T, N>;
 /// Default UKF for linear systems with input (medium-sized)
 pub type UKFLinear<T, const N: usize, const U: usize> = UKFLinearMedium<T, N, U>;
 
+/// Builder for creating UKF instances with better ergonomics
+pub struct UKFBuilder<T: RealField + Copy> {
+    /// UKF parameters
+    params: UnscentedParameters<T>,
+}
+
+impl<T: RealField + Copy> UKFBuilder<T> {
+    /// Create a new builder with default parameters
+    pub fn new() -> Self {
+        Self {
+            params: UnscentedParameters::default(),
+        }
+    }
+    
+    /// Set custom UKF parameters
+    pub fn with_params(mut self, params: UnscentedParameters<T>) -> Self {
+        self.params = params;
+        self
+    }
+    
+    /// Build a linear UKF without input (medium-sized)
+    #[allow(non_snake_case)]
+    pub fn build_linear_no_input<const N: usize>(
+        self,
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        x_initial: SVector<T, N>,
+        P_initial: SMatrix<T, N, N>,
+    ) -> UKFLinearNoInputMedium<T, N> {
+        UKFLinearNoInputMedium::new_custom_with_params(
+            LinearNoInputSystem::new(F, Q, x_initial),
+            P_initial,
+            self.params,
+        )
+    }
+    
+    /// Build a linear UKF with input (medium-sized)
+    #[allow(non_snake_case)]
+    pub fn build_linear_with_input<const N: usize, const U: usize>(
+        self,
+        F: SMatrix<T, N, N>,
+        Q: SMatrix<T, N, N>,
+        B: SMatrix<T, N, U>,
+        x_initial: SVector<T, N>,
+        P_initial: SMatrix<T, N, N>,
+    ) -> UKFLinearMedium<T, N, U> {
+        UKFLinearMedium::new_custom_with_params(
+            LinearSystem::new(F, Q, B, x_initial),
+            P_initial,
+            self.params,
+        )
+    }
+}
+
 impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> UnscentedKalman<T, N, U, MAX_POINTS, S>
 where
     T: RealField + Copy,
@@ -372,7 +465,7 @@ where
     /// Generate sigma points from current state
     #[track_caller]
     #[inline]
-    fn generate_sigma_points(&self) -> Result<SigmaPoints<T, N, MAX_POINTS>, &'static str> {
+    fn generate_sigma_points(&self) -> UKFResult<SigmaPoints<T, N, MAX_POINTS>> {
         SigmaPoints::generate(
             self.system.state(),
             &self.P,
@@ -603,7 +696,7 @@ where
 {
     /// Internal UKF prediction with input - optimized without cloning
     #[track_caller]
-    fn predict_ukf_with_input_internal(&mut self, u: SVector<T, U>) -> Result<(), &'static str>
+    fn predict_ukf_with_input_internal(&mut self, u: SVector<T, U>) -> UKFResult<()>
     where
         S: InputSystem<T, N, U>,
     {
@@ -675,7 +768,7 @@ where
     
     /// Internal UKF prediction with error handling
     #[track_caller]
-    fn predict_ukf_internal<F>(&mut self, process_fn: F) -> Result<(), &'static str>
+    fn predict_ukf_internal<F>(&mut self, process_fn: F) -> UKFResult<()>
     where
         F: Fn(&SVector<T, N>) -> SVector<T, N>,
     {
@@ -708,8 +801,10 @@ where
     where
         F: Fn(&SVector<T, N>) -> SVector<T, N>,
     {
-        self.predict_ukf_internal(process_fn)
-            .expect("UKF prediction failed");
+        if let Err(_) = self.predict_ukf_internal(process_fn) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("UKF prediction failed, state unchanged");
+        }
         
         self.system.state()
     }
@@ -721,25 +816,27 @@ where
         F: Fn(&SVector<T, N>, &SVector<T, U>) -> SVector<T, N>,
     {
         // Generate sigma points from current state
-        let sigma_points = self.generate_sigma_points()
-            .expect("Failed to generate sigma points for prediction");
-        
-        // Transform sigma points through custom process function with input
-        let transformed = sigma_points.transform(|state| process_fn(state, &u));
-        
-        // Compute predicted mean
-        let predicted_mean = sigma_points.weighted_mean(&transformed);
-        
-        // Compute predicted covariance
-        let mut predicted_cov = sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
-        
-        // Add process noise
-        let q = self.system.covariance();
-        predicted_cov += q;
-        
-        // Update state and covariance
-        *self.system.state_mut() = predicted_mean;
-        self.P = predicted_cov.symmetric_part();
+        if let Ok(sigma_points) = self.generate_sigma_points() {
+            // Transform sigma points through custom process function with input
+            let transformed = sigma_points.transform(|state| process_fn(state, &u));
+            
+            // Compute predicted mean
+            let predicted_mean = sigma_points.weighted_mean(&transformed);
+            
+            // Compute predicted covariance
+            let mut predicted_cov = sigma_points.weighted_covariance_stable(&transformed, &predicted_mean);
+            
+            // Add process noise
+            let q = self.system.covariance();
+            predicted_cov += q;
+            
+            // Update state and covariance
+            *self.system.state_mut() = predicted_mean;
+            self.P = predicted_cov.symmetric_part();
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("UKF prediction with input failed, state unchanged");
+        }
         
         self.system.state()
     }
@@ -757,44 +854,48 @@ where
         F: Fn(&SVector<T, N>) -> SVector<T, M>,
     {
         // Generate sigma points
-        let sigma_points = self.generate_sigma_points()
-            .expect("Failed to generate sigma points for update");
-        
-        // Transform sigma points through measurement function
-        let mut measurement_transformed = [SVector::<T, M>::zeros(); MAX_POINTS];
-        sigma_points.transform_into(&measurement_fn, &mut measurement_transformed);
-        
-        // Compute predicted measurement
-        let predicted_measurement = sigma_points.weighted_mean(&measurement_transformed);
-        
-        // Compute innovation covariance
-        let mut innovation_cov = sigma_points.weighted_covariance_stable(
-            &measurement_transformed,
-            &predicted_measurement,
-        );
-        innovation_cov += measurement_noise;
-        
-        // Robust inversion
-        let innovation_cov_inv = self.robust_matrix_inverse(&innovation_cov)
-            .expect("Innovation covariance matrix is singular");
-        
-        // Compute cross-covariance
-        let cross_cov = sigma_points.cross_covariance(
-            self.system.state(),
-            &measurement_transformed,
-            &predicted_measurement,
-        );
-        
-        // Compute Kalman gain
-        let K = &cross_cov * &innovation_cov_inv;
-        
-        // Update state
-        let innovation = measurement - &predicted_measurement;
-        *self.system.state_mut() += &K * &innovation;
-        
-        // Simplified covariance update for UKF
-        self.P = &self.P - &K * &cross_cov.transpose();
-        self.P = self.P.symmetric_part();
+        if let Ok(sigma_points) = self.generate_sigma_points() {
+            // Transform sigma points through measurement function
+            let mut measurement_transformed = [SVector::<T, M>::zeros(); MAX_POINTS];
+            sigma_points.transform_into(&measurement_fn, &mut measurement_transformed);
+            
+            // Compute predicted measurement
+            let predicted_measurement = sigma_points.weighted_mean(&measurement_transformed);
+            
+            // Compute innovation covariance
+            let mut innovation_cov = sigma_points.weighted_covariance_stable(
+                &measurement_transformed,
+                &predicted_measurement,
+            );
+            innovation_cov += measurement_noise;
+            
+            // Robust inversion
+            if let Ok(innovation_cov_inv) = self.robust_matrix_inverse(&innovation_cov) {
+                // Compute cross-covariance
+                let cross_cov = sigma_points.cross_covariance(
+                    self.system.state(),
+                    &measurement_transformed,
+                    &predicted_measurement,
+                );
+                
+                // Compute Kalman gain
+                let K = &cross_cov * &innovation_cov_inv;
+                
+                // Update state
+                let innovation = measurement - &predicted_measurement;
+                *self.system.state_mut() += &K * &innovation;
+                
+                // Simplified covariance update for UKF
+                self.P = &self.P - &K * &cross_cov.transpose();
+                self.P = self.P.symmetric_part();
+            } else {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("UKF update failed: singular innovation covariance");
+            }
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("UKF update failed: could not generate sigma points");
+        }
         
         self.system.state()
     }
@@ -820,7 +921,7 @@ where
     fn robust_matrix_inverse<const M: usize>(
         &self,
         matrix: &SMatrix<T, M, M>
-    ) -> Result<SMatrix<T, M, M>, &'static str> {
+    ) -> UKFResult<SMatrix<T, M, M>> {
         // Primary: try direct inversion
         if let Some(inv) = matrix.try_inverse() {
             return Ok(inv);
@@ -833,7 +934,7 @@ where
             return Ok(inv);
         }
         
-        Err("Matrix inversion failed")
+        Err(UKFError::SingularMatrix)
     }
 }
 
