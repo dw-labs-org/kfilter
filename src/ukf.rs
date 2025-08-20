@@ -164,21 +164,25 @@ pub struct UnscentedParameters<T: RealField + Copy> {
 impl<T: RealField + Copy> UnscentedParameters<T> {
     /// Create new UKF parameters with validation
     #[track_caller]
-    pub fn new(alpha: T, beta: T, kappa: T) -> Self {
+    pub fn new(alpha: T, beta: T, kappa: T) -> UKFResult<Self> {
         let zero = T::zero();
         let one = T::one();
         
-        assert!(alpha > zero && alpha <= one, "Alpha must be in (0, 1]");
-        assert!(beta >= zero, "Beta must be non-negative");
+        if alpha <= zero || alpha > one {
+            return Err(UKFError::InvalidParameters);
+        }
+        if beta < zero {
+            return Err(UKFError::InvalidParameters);
+        }
         
-        Self { alpha, beta, kappa }
+        Ok(Self { alpha, beta, kappa })
     }
     
     /// Create default UKF parameters
     pub fn default() -> Self {
         Self {
-            alpha: T::from_f64(1e-3).unwrap(),
-            beta: T::from_f64(2.0).unwrap(),
+            alpha: T::from_f64(1e-3).unwrap_or_else(|| T::one() / T::from_f64(1000.0).unwrap_or(T::one())),
+            beta: T::from_f64(2.0).unwrap_or_else(|| T::one() + T::one()),
             kappa: T::zero(),
         }
     }
@@ -195,16 +199,16 @@ impl<T: RealField + Copy> UnscentedParameters<T> {
     /// Calculate lambda parameter
     #[inline]
     pub fn lambda(&self, n: usize) -> T {
-        let n_f = T::from_usize(n).unwrap();
+        let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
         self.alpha * self.alpha * (n_f + self.kappa) - n_f
     }
 
     /// Calculate all weights at once for efficiency
     #[inline]
     pub fn compute_weights(&self, n: usize) -> UKFWeights<T> {
-        let n_f = T::from_usize(n).unwrap();
+        let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
         let lambda = self.lambda(n);
-        let two = T::from_f64(2.0).unwrap();
+        let two = T::from_f64(2.0).unwrap_or_else(|| T::one() + T::one());
         
         let w_mean_0 = lambda / (n_f + lambda);
         let w_cov_0 = w_mean_0 + (T::one() - self.alpha * self.alpha + self.beta);
@@ -328,7 +332,7 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
             });
         }
         
-        let n_f = T::from_usize(N).unwrap();
+        let n_f = T::from_usize(N).unwrap_or_else(|| T::zero());
         let lambda = params.lambda(N);
         
         // Robust Cholesky decomposition
@@ -364,7 +368,7 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
         }
         
         // Fallback: Use identity matrix scaled appropriately
-        let min_eigenvalue = T::from_f64(1e-6).unwrap();
+        let min_eigenvalue = T::from_f64(1e-6).unwrap_or_else(|| T::one() / T::from_f64(1e6).unwrap_or(T::one()));
         Ok(SMatrix::<T, N, N>::identity() * (min_eigenvalue * sqrt_scale))
     }
     
@@ -429,18 +433,18 @@ impl<T: RealField + Copy, const N: usize> SigmaPointsStorage<T, N> {
     }
     
     /// Compute weighted mean
-    pub fn weighted_mean<const M: usize>(&self, transformed: &SigmaPointsStorage<T, M>) -> SVector<T, M> {
+    pub fn weighted_mean<const M: usize>(&self, transformed: &SigmaPointsStorage<T, M>) -> UKFResult<SVector<T, M>> {
         match (self, transformed) {
             (Self::Small { weights, count, .. }, SigmaPointsStorage::Small { points, .. }) => {
-                Self::compute_weighted_mean_internal(points, weights, *count)
+                Ok(Self::compute_weighted_mean_internal(points, weights, *count))
             },
             (Self::Medium { weights, count, .. }, SigmaPointsStorage::Medium { points, .. }) => {
-                Self::compute_weighted_mean_internal(points, weights, *count)
+                Ok(Self::compute_weighted_mean_internal(points, weights, *count))
             },
             (Self::Large { weights, count, .. }, SigmaPointsStorage::Large { points, .. }) => {
-                Self::compute_weighted_mean_internal(points, weights, *count)
+                Ok(Self::compute_weighted_mean_internal(points, weights, *count))
             },
-            _ => panic!("Mismatched storage types"), // This should not happen in practice
+            _ => Err(UKFError::NumericalInstability), // Mismatched storage types
         }
     }
     
@@ -487,7 +491,7 @@ impl<T: RealField + Copy, const N: usize, const MAX_POINTS: usize> SigmaPoints<T
             });
         }
         
-        let n_f = T::from_usize(N).unwrap();
+        let n_f = T::from_usize(N).unwrap_or_else(|| T::zero());
         let lambda = params.lambda(N);
         
         // Robust Cholesky decomposition
@@ -1444,7 +1448,13 @@ mod tests {
         
         // Valid parameters
         let params = UnscentedParameters::<T>::new(0.5, 2.0, 0.0);
+        assert!(params.is_ok());
+        let params = params.unwrap();
         assert!((params.alpha - 0.5).abs() < 1e-10);
+        
+        // Invalid parameters
+        let invalid_params = UnscentedParameters::<T>::new(0.0, 2.0, 0.0);
+        assert!(invalid_params.is_err());
         
         // Default parameters
         let params_default = UnscentedParameters::<T>::default();
@@ -1620,7 +1630,7 @@ mod tests {
     fn test_ukf_builder_pattern() {
         type T = f64;
         
-        let params = UnscentedParameters::<T>::new(0.1, 2.0, 0.0);
+        let params = UnscentedParameters::<T>::new(0.1, 2.0, 0.0).unwrap();
         let ukf = UKFBuilder::<T>::new()
             .with_params(params)
             .build_linear_no_input(
