@@ -31,9 +31,9 @@ unsafe fn main() -> ! {
     defmt::flush();
     // Fairly useless loop but does run
     for i in 0.. {
-        let x_predicted = k.predict(Matrix1::new(1.0)).x;
+        let x_predicted = k.predict(Matrix1::new(1.0)).unwrap().x;
         let x_measured = i as f32; // Replace with actual measurement
-        k.update(Matrix1::new(x_measured));
+        k.update(Matrix1::new(x_measured)).unwrap();
         let x_updated = k.state().x;
         defmt::info!(
             "Predicted: {:?}, Measured: {:?}, Updated: {:?}",
@@ -44,5 +44,7 @@ unsafe fn main() -> ! {
         defmt::info!("Kalman filter state: {:?}", k);
     }
 
-    loop {}
+    loop {
+        cortex_m::asm::nop()
+    }
 }
