@@ -12,6 +12,19 @@ use crate::{
     },
 };
 
+/// Errors that can occur during the Kalman filter process predict and update steps
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum KfError {
+    /// The innovation covariance matrix could not be inverted
+    ///
+    /// This error occurs when the measurement noise covariance matrix is not
+    /// positive semi-definite, which is a requirement for the Kalman filter
+    /// update step.
+    InnovationCovarianceNotInvertible,
+}
+
 /// Base trait for [Kalman] or wrappers around it. Allows viewing the state and covariance
 /// and modifying the covariance.
 /// Modifying the covariance can be necessary if it becomes non symmetric.
@@ -38,15 +51,19 @@ pub trait KalmanPredict<T, const N: usize> {
 /// Uses the underlying [System] to perform the prediction and updates
 /// the covariance according to P = F * P * F_t + Q.
 pub trait KalmanPredictInput<T, const N: usize, const U: usize> {
+    /// The error type for the prediction
+    type Error;
     /// predict the next state with an input vector and return it. Also update covariance
-    fn predict(&mut self, u: SVector<T, U>) -> &SVector<T, N>;
+    fn predict(&mut self, u: SVector<T, U>) -> Result<&SVector<T, N>, Self::Error>;
 }
 
 /// Trait for a kalman filter to update the state and covariance based on a measurement.
 /// Optimally updates using the Kalman gain.
 pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, M>> {
+    /// The error type for the update
+    type Error;
     /// Optimally update state and covariance based on the measurement
-    fn update(&mut self, measurement: &ME) -> &SVector<T, N>;
+    fn update(&mut self, measurement: &ME) -> Result<&SVector<T, N>, Self::Error>;
 }
 
 /// Representation of the Kalman filter. This is the base type that can be interacted
@@ -182,11 +199,13 @@ impl<T: RealField + Copy, const N: usize, S: NoInputSystem<T, N>> KalmanPredict<
 impl<T: RealField + Copy, const N: usize, const U: usize, S: InputSystem<T, N, U>>
     KalmanPredictInput<T, N, U> for Kalman<T, N, U, S>
 {
-    fn predict(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
+    type Error = KfError;
+
+    fn predict(&mut self, u: SVector<T, U>) -> Result<&SVector<T, N>, Self::Error> {
         self.system.step(u);
         self.P = self.system.transition() * self.P * self.system.transition_transpose()
             + self.system.covariance();
-        self.system.state()
+        Ok(self.system.state())
     }
 }
 
@@ -200,15 +219,15 @@ impl<
         ME: Measurement<T, N, M>,
     > KalmanUpdate<T, N, M, ME> for Kalman<T, N, U, S>
 {
-
+    type Error = KfError;
     /// # Panics
     ///
     /// Panics if the innovation covariance matrix is not invertible.
-    /// 
+    ///
     /// can in particular be caused by `measurement.covariance()` not returning a positive semi-definite matrix
     #[track_caller]
     #[allow(non_snake_case)]
-    fn update(&mut self, measurement: &ME) -> &SVector<T, N> {
+    fn update(&mut self, measurement: &ME) -> Result<&SVector<T, N>, Self::Error> {
         // innovation
         let y = measurement.innovation(self.system.state());
         // innovation covariance
@@ -216,13 +235,7 @@ impl<
             + measurement.covariance();
         // handle the buggy case where S is not invertible
         let Some(S_Inverse) = S.try_inverse() else {
-            assert!(measurement.covariance().try_inverse().is_some(),
-r#"the covariance matrix of the input measurement noise was not invertible,
-but it must be positive semi-definite for the system to be updated"#);
-            assert!(&measurement.observation().transpose() == measurement.observation_transpose(), 
-r#"Measurement was incorrectly implemented by the input :
-observation_transpose() does not return the transpose of observation()"#);
-            panic!("The innovation covariance matrix could not be inverted")
+            return Err(KfError::InnovationCovarianceNotInvertible);
         };
         // Optimal gain
         let K = self.P * measurement.observation_transpose() * S_Inverse;
@@ -232,7 +245,7 @@ observation_transpose() does not return the transpose of observation()"#);
         self.P = (SMatrix::identity() - K * measurement.observation()) * self.P;
         // Ensure covariance is symmetric (deals with numerical errors)
         self.P = self.P.symmetric_part();
-        self.state()
+        Ok(self.state())
     }
 }
 
@@ -404,7 +417,8 @@ where
     S: InputSystem<T, N, U>,
     ME: Measurement<T, N, M>,
 {
-    fn predict(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
+    type Error = KfError;
+    fn predict(&mut self, u: SVector<T, U>) -> Result<&SVector<T, N>, Self::Error> {
         self.kalman.predict(u)
     }
 }
@@ -428,10 +442,10 @@ where
     ME: Measurement<T, N, M>,
 {
     /// Update the state with a new measurement
-    pub fn update(&mut self, z: SVector<T, M>) -> &SVector<T, N> {
+    pub fn update(&mut self, z: SVector<T, M>) -> Result<&SVector<T, N>, KfError> {
         self.measurement.set_measurement(z);
-        self.kalman.update(&self.measurement);
-        self.kalman.state()
+        self.kalman.update(&self.measurement)?;
+        Ok(self.kalman.state())
     }
 }
 
@@ -503,27 +517,46 @@ where
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use nalgebra::Matrix1;
 
-    use crate::{measurement::LinearMeasurement, kalman::KalmanUpdate};
-    
+    use crate::{kalman::KalmanUpdate, measurement::LinearMeasurement};
+
     #[test]
     fn does_not_panic() {
-        let mut k = super::KalmanLinear::new_with_input(Matrix1::new(1.0), Matrix1::new(0.0), Matrix1::new(0.0), Matrix1::new(0.0), Matrix1::new(100.0));
+        let mut k = super::KalmanLinear::new_with_input(
+            Matrix1::new(1.0),
+            Matrix1::new(0.0),
+            Matrix1::new(0.0),
+            Matrix1::new(0.0),
+            Matrix1::new(100.0),
+        );
 
-        k.update(&LinearMeasurement::new(Matrix1::identity(), Matrix1::identity(), Matrix1::new(0.0)));
-
+        k.update(&LinearMeasurement::new(
+            Matrix1::identity(),
+            Matrix1::identity(),
+            Matrix1::new(0.0),
+        ))
+        .unwrap();
     }
-    
+
     #[test]
     #[should_panic]
     fn does_panic() {
-        let mut k = super::KalmanLinear::new_with_input(Matrix1::new(1.0), Matrix1::new(0.0), Matrix1::new(0.0), Matrix1::new(0.0), Matrix1::zeros());
+        let mut k = super::KalmanLinear::new_with_input(
+            Matrix1::new(1.0),
+            Matrix1::new(0.0),
+            Matrix1::new(0.0),
+            Matrix1::new(0.0),
+            Matrix1::zeros(),
+        );
 
-        k.update(&LinearMeasurement::new(Matrix1::identity(), Matrix1::zeros(), Matrix1::new(0.0)));
-
+        k.update(&LinearMeasurement::new(
+            Matrix1::identity(),
+            Matrix1::zeros(),
+            Matrix1::new(0.0),
+        ))
+        .unwrap();
     }
 }

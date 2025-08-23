@@ -23,9 +23,9 @@ fn main() {
     for i in 0..100 {
         let x_real = 0.5 * ((i as f64) / 10.0).powi(2);
         // constant acceleration input
-        let x_predicted = k.predict(Matrix1::new(1.0)).x;
+        let x_predicted = k.predict(Matrix1::new(1.0)).unwrap().x;
         let x_measured = x_real + noise.sample(&mut rng);
-        k.update(Matrix1::new(x_measured));
+        k.update(Matrix1::new(x_measured)).unwrap();
         let x_updated = k.state().x;
         println!("{x_real}, {x_measured}, {x_predicted}, {x_updated}");
     }
