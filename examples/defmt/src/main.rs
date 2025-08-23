@@ -44,5 +44,7 @@ unsafe fn main() -> ! {
         defmt::info!("Kalman filter state: {:?}", k);
     }
 
-    loop {}
+    loop {
+        cortex_m::asm::nop()
+    }
 }
