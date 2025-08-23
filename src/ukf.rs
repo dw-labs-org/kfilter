@@ -34,45 +34,6 @@ impl core::fmt::Display for UKFError {
 /// Result type for UKF operations
 pub type UKFResult<T> = Result<T, UKFError>;
 
-/// Performance statistics for UKF operations
-#[derive(Debug, Default, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct UKFPerformanceStats {
-    /// Number of prediction operations performed
-    pub prediction_count: usize,
-    /// Number of update operations performed
-    pub update_count: usize,
-    /// Number of sigma point generation failures
-    pub sigma_generation_failures: usize,
-    /// Number of matrix inversion failures
-    pub matrix_inversion_failures: usize,
-}
-
-impl UKFPerformanceStats {
-    /// Calculate prediction success rate
-    pub fn prediction_success_rate(&self) -> f64 {
-        if self.prediction_count == 0 {
-            1.0
-        } else {
-            1.0 - (self.sigma_generation_failures as f64 / self.prediction_count as f64)
-        }
-    }
-
-    /// Calculate update success rate
-    pub fn update_success_rate(&self) -> f64 {
-        if self.update_count == 0 {
-            1.0
-        } else {
-            1.0 - (self.matrix_inversion_failures as f64 / self.update_count as f64)
-        }
-    }
-
-    /// Reset all statistics
-    pub fn reset(&mut self) {
-        *self = Self::default();
-    }
-}
-
 /// Parameters for the Unscented Transform with validation
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -414,132 +375,6 @@ impl<T: RealField + Copy> UKFBuilder<T> {
     pub fn with_params(mut self, params: UnscentedParameters<T>) -> Self {
         self.params = params;
         self
-    }
-}
-
-/// Performance monitoring wrapper for UKF
-pub struct MonitoredUKF<T, const N: usize, const U: usize, const X: usize, S>
-where
-    T: RealField + Copy,
-    S: System<T, N, U>,
-{
-    /// Inner UKF instance
-    inner: UnscentedKalman<T, N, U, X, S>,
-    /// Performance statistics
-    stats: UKFPerformanceStats,
-}
-
-impl<T, const N: usize, const U: usize, const X: usize, S> MonitoredUKF<T, N, U, X, S>
-where
-    T: RealField + Copy,
-    S: System<T, N, U>,
-{
-    /// Create a new monitored UKF
-    pub fn new(inner: UnscentedKalman<T, N, U, X, S>) -> Self {
-        Self {
-            inner,
-            stats: UKFPerformanceStats::default(),
-        }
-    }
-
-    /// Get reference to the inner UKF
-    pub fn inner(&self) -> &UnscentedKalman<T, N, U, X, S> {
-        &self.inner
-    }
-
-    /// Get mutable reference to the inner UKF
-    pub fn inner_mut(&mut self) -> &mut UnscentedKalman<T, N, U, X, S> {
-        &mut self.inner
-    }
-
-    /// Get performance statistics
-    pub fn stats(&self) -> &UKFPerformanceStats {
-        &self.stats
-    }
-
-    /// Reset performance statistics
-    pub fn reset_stats(&mut self) {
-        self.stats.reset();
-    }
-
-    /// Predict with monitoring for systems with input
-    pub fn predict_monitored_with_input(
-        &mut self,
-        u: SVector<T, U>,
-    ) -> Result<&SVector<T, N>, UKFError>
-    where
-        S: InputSystem<T, N, U>,
-    {
-        self.stats.prediction_count += 1;
-        self.inner.predict(u)
-    }
-
-    /// Update with monitoring
-    #[allow(non_snake_case)]
-    pub fn update_monitored<F, const M: usize>(
-        &mut self,
-        measurement_fn: F,
-        measurement: &SVector<T, M>,
-        measurement_noise: &SMatrix<T, M, M>,
-    ) -> &SVector<T, N>
-    where
-        F: Fn(&SVector<T, N>) -> SVector<T, M>,
-    {
-        self.stats.update_count += 1;
-
-        // Try UKF update
-        if let Ok(sigma_points) = self.inner.generate_sigma_points() {
-            // Transform sigma points through measurement function
-            let mut measurement_transformed = [SVector::<T, M>::zeros(); X];
-            sigma_points.transform_into(&measurement_fn, &mut measurement_transformed);
-
-            // Compute predicted measurement
-            let predicted_measurement = sigma_points.weighted_mean(&measurement_transformed);
-
-            // Compute innovation covariance
-            let mut innovation_cov = sigma_points
-                .weighted_covariance_stable(&measurement_transformed, &predicted_measurement);
-            innovation_cov += measurement_noise;
-
-            // Try robust inversion
-            if let Ok(innovation_cov_inv) = self.inner.robust_matrix_inverse(&innovation_cov) {
-                // Compute cross-covariance
-                let cross_cov = sigma_points.cross_covariance(
-                    self.inner.system.state(),
-                    &measurement_transformed,
-                    &predicted_measurement,
-                );
-
-                // Compute Kalman gain
-                let K = cross_cov * innovation_cov_inv;
-
-                // Update state
-                let innovation = measurement - predicted_measurement;
-                *self.inner.system.state_mut() += K * innovation;
-
-                // Simplified covariance update for UKF
-                self.inner.P -= K * cross_cov.transpose();
-                self.inner.P = self.inner.P.symmetric_part();
-            } else {
-                self.stats.matrix_inversion_failures += 1;
-            }
-        } else {
-            self.stats.sigma_generation_failures += 1;
-        }
-
-        self.inner.system.state()
-    }
-}
-
-impl<T, const N: usize, const X: usize, S> MonitoredUKF<T, N, 0, X, S>
-where
-    T: RealField + Copy,
-    S: NoInputSystem<T, N>,
-{
-    /// Predict with monitoring for systems without input
-    pub fn predict_monitored(&mut self) -> Result<&SVector<T, N>, UKFError> {
-        self.stats.prediction_count += 1;
-        self.inner.predict()
     }
 }
 
@@ -969,7 +804,7 @@ impl<T: RealField + Copy, const N: usize, const X: usize> UKFLinearNoInput<T, N,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Matrix2, Matrix3, Vector2, Vector3};
+    use nalgebra::{Matrix2, Vector2};
 
     #[test]
     fn test_ukf_prediction_and_update() {
@@ -981,7 +816,7 @@ mod tests {
         );
 
         // Test prediction
-        ukf.predict();
+        ukf.predict().unwrap();
 
         // Test update
         let measurement = Vector2::new(1.0, 0.5);
