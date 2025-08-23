@@ -67,9 +67,8 @@ impl<T: RealField + Copy> UnscentedParameters<T> {
     /// Create default UKF parameters
     pub fn new_default() -> Self {
         Self {
-            alpha: T::from_f64(1e-3)
-                .unwrap_or_else(|| T::one() / T::from_f64(1000.0).unwrap_or(T::one())),
-            beta: T::from_f64(2.0).unwrap_or_else(|| T::one() + T::one()),
+            alpha: T::from_f64(1e-3).unwrap(),
+            beta: T::from_f64(2.0).unwrap(),
             kappa: T::zero(),
         }
     }
@@ -91,7 +90,6 @@ impl<T: RealField + Copy> UnscentedParameters<T> {
     }
 
     /// Calculate all weights with numerical stability checks
-    #[inline]
     pub fn compute_weights(&self, n: usize) -> UKFWeights<T> {
         let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
         let lambda = self.lambda(n);
@@ -322,7 +320,7 @@ impl<T: RealField + Copy, const N: usize, const X: usize> SigmaPoints<T, N, X> {
         cross_cov += (state_diff0 * meas_diff0.transpose()) * self.weights.cov_0;
 
         // Other points
-        for (i, meas_transformed) in measurement_transformed.iter().enumerate().skip(1) {
+        for (i, meas_transformed) in measurement_transformed.iter().skip(1).enumerate() {
             let state_diff = self.points_buffer[i + 1] - state_mean;
             let meas_diff = meas_transformed - measurement_mean;
             cross_cov += (state_diff * meas_diff.transpose()) * self.weights.other;
@@ -803,8 +801,104 @@ impl<T: RealField + Copy, const N: usize, const X: usize> UKFLinearNoInput<T, N,
 
 #[cfg(test)]
 mod tests {
+    use crate::{measurement::LinearMeasurement, Kalman, KalmanUpdate};
+
     use super::*;
-    use nalgebra::{Matrix2, Vector2};
+    use log::debug;
+    use nalgebra::{Matrix2, Vector1, Vector2};
+
+    use rand::Rng;
+    use test_log::test;
+
+    #[test]
+    fn sigma_points() {
+        let mean = Vector2::new(1.0, 2.0);
+        let cov = Matrix2::identity();
+        let params = UnscentedParameters::<f64>::default();
+
+        let sigma_points = SigmaPoints::<f64, 2, 5>::generate(&mean, &cov, &params);
+
+        assert!(sigma_points.is_ok());
+        let sigma_points = sigma_points.unwrap();
+        // Central point should be the mean
+        assert!((sigma_points.points_buffer[0] - mean).norm() < 1e-10);
+    }
+
+    fn compare_to_kf_predict_identity<const N: usize, const X: usize>() {
+        // Create linear no input kf and check ukf produces same result
+        let x_initial = SVector::<f64, N>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let mut kf = Kalman::<f64, N, 0, _>::new(
+            SMatrix::identity(),
+            SMatrix::identity(),
+            x_initial,
+            SMatrix::identity(),
+        );
+
+        let mut ukf: UnscentedKalman<f64, N, 0, X, _> = UnscentedKalman::new_linear(
+            SMatrix::identity(),
+            SMatrix::identity(),
+            x_initial,
+            SMatrix::identity(),
+        );
+
+        for _ in 0..10 {
+            kf.predict().unwrap();
+            ukf.predict().unwrap();
+            debug!(target: "test", "KF Covariance: {:?}", kf.covariance());
+            debug!(target: "test", "UKF Covariance: {:?}", ukf.covariance());
+            // Check that covariance is the same
+            assert!(kf
+                .covariance()
+                .iter()
+                .zip(ukf.covariance().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-5));
+        }
+    }
+
+    fn compare_to_kf_predict_random<const N: usize, const X: usize>() {
+        // Create linear no input kf and check ukf produces same result
+        let x_initial =
+            SVector::<f64, N>::from_fn(|_, _| rand::prelude::thread_rng().gen_range(-1.0..1.0));
+        // Create a random F matrix
+        let F = SMatrix::<f64, N, N>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let mut kf =
+            Kalman::<f64, N, 0, _>::new(F, SMatrix::identity(), x_initial, SMatrix::identity());
+
+        let mut ukf: UnscentedKalman<f64, N, 0, X, _> =
+            UnscentedKalman::new_linear(F, SMatrix::identity(), x_initial, SMatrix::identity());
+
+        for _ in 0..10 {
+            kf.predict().unwrap();
+            ukf.predict().unwrap();
+            debug!(target: "test", "KF Covariance: {:?}", kf.covariance());
+            debug!(target: "test", "UKF Covariance: {:?}", ukf.covariance());
+            // Check that each covariance value is with tolerance
+            assert!(kf
+                .covariance()
+                .iter()
+                .zip(ukf.covariance().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-5));
+        }
+    }
+
+    #[test]
+    fn compare_to_kf_predict() {
+        // Compare different sizes to linear kf with no input
+        compare_to_kf_predict_identity::<2, 5>();
+        compare_to_kf_predict_identity::<3, 7>();
+        compare_to_kf_predict_identity::<4, 9>();
+        compare_to_kf_predict_identity::<5, 11>();
+        compare_to_kf_predict_identity::<6, 13>();
+        compare_to_kf_predict_identity::<12, 25>();
+
+        // Do the same with random F matrices
+        compare_to_kf_predict_random::<2, 5>();
+        compare_to_kf_predict_random::<3, 7>();
+        compare_to_kf_predict_random::<4, 9>();
+        compare_to_kf_predict_random::<5, 11>();
+        compare_to_kf_predict_random::<6, 13>();
+        compare_to_kf_predict_random::<12, 25>();
+    }
 
     #[test]
     fn test_ukf_prediction_and_update() {
@@ -856,11 +950,9 @@ mod tests {
         let cov = Matrix2::identity();
         let params = UnscentedParameters::<T>::default();
 
-        let sigma_points = SigmaPoints::<T, 2, 5>::generate(&mean, &cov, &params);
+        let sigma_points = SigmaPoints::<T, 2, 5>::generate(&mean, &cov, &params).unwrap();
+        println!("Sigma Points: {:?}", sigma_points);
 
-        assert!(sigma_points.is_ok());
-        let sigma_points = sigma_points.unwrap();
-        // Central point should be the mean
         assert!((sigma_points.points_buffer[0] - mean).norm() < 1e-10);
     }
 
@@ -1026,28 +1118,6 @@ mod tests {
     // }
 
     // #[test]
-    // fn test_monitored_ukf() {
-    //     type T = f64;
-
-    //     let ukf = UKFLinearNoInputMedium::<T, 2>::new(
-    //         Matrix2::new(1.0, 0.1, 0.0, 1.0), // F
-    //         Matrix2::identity() * 0.01,       // Q
-    //         Vector2::zeros(),                 // x_initial
-    //         Matrix2::identity(),              // P_initial
-    //     );
-
-    //     let mut monitored = MonitoredUKF::new(ukf);
-
-    //     // Test prediction with monitoring
-    //     monitored.predict_monitored();
-
-    //     // Check stats
-    //     let stats = monitored.stats();
-    //     assert_eq!(stats.prediction_count, 1);
-    //     assert_eq!(stats.update_count, 0);
-    // }
-
-    // #[test]
     // fn test_ukf_error_types() {
     //     type T = f64;
 
@@ -1062,28 +1132,5 @@ mod tests {
 
     //     let storage = result.unwrap();
     //     assert_eq!(storage.len(), 5); // 2*2 + 1 sigma points
-    // }
-
-    // #[test]
-    // fn test_performance_stats() {
-    //     let mut stats = UKFPerformanceStats::default();
-
-    //     // Initially empty
-    //     assert_eq!(stats.prediction_success_rate(), 1.0);
-    //     assert_eq!(stats.update_success_rate(), 1.0);
-
-    //     // Add some operations
-    //     stats.prediction_count = 10;
-    //     stats.sigma_generation_failures = 2;
-    //     stats.update_count = 5;
-    //     stats.matrix_inversion_failures = 1;
-
-    //     assert_eq!(stats.prediction_success_rate(), 0.8); // 8/10
-    //     assert_eq!(stats.update_success_rate(), 0.8); // 4/5
-
-    //     // Reset
-    //     stats.reset();
-    //     assert_eq!(stats.prediction_count, 0);
-    //     assert_eq!(stats.prediction_success_rate(), 1.0);
     // }
 }

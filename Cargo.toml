@@ -30,8 +30,10 @@ serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 # plotters = "0.3.7"
+log = "0.4.27"
 rand = "0.8.5"
 rand_distr = "0.4.3"
+test-log = "0.2.18"
 
 [features]
 serde = ["dep:serde", "nalgebra/serde-serialize"]
