@@ -24,7 +24,7 @@ fn main() {
     // Run for 100 timesteps
     for i in 0..100 {
         let x_real = i as f64;
-        let x_predicted = k.predict().x;
+        let x_predicted = k.predict().unwrap().x;
         let x_measured = x_real + noise.sample(&mut rng);
         k.update(Matrix1::new(x_measured)).unwrap();
         let x_updated = k.state().x;

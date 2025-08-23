@@ -43,8 +43,10 @@ pub trait KalmanFilter<T, const N: usize, S> {
 /// Uses the underlying [System] to perform the prediction and updates
 /// the covariance according to P = F * P * F_t + Q.
 pub trait KalmanPredict<T, const N: usize> {
+    /// The error type for the prediction
+    type Error;
     /// predict the next state and return it. Also update covariance
-    fn predict(&mut self) -> &SVector<T, N>;
+    fn predict(&mut self) -> Result<&SVector<T, N>, Self::Error>;
 }
 
 /// Trait for a prediction of the next state for a system with input.
@@ -187,11 +189,13 @@ where
 impl<T: RealField + Copy, const N: usize, S: NoInputSystem<T, N>> KalmanPredict<T, N>
     for Kalman<T, N, 0, S>
 {
-    fn predict(&mut self) -> &SVector<T, N> {
+    type Error = KfError;
+
+    fn predict(&mut self) -> Result<&SVector<T, N>, Self::Error> {
         self.system.step();
         self.P = self.system.transition() * self.P * self.system.transition_transpose()
             + self.system.covariance();
-        self.system.state()
+        Ok(self.system.state())
     }
 }
 
@@ -430,7 +434,8 @@ where
     S: NoInputSystem<T, N>,
     ME: Measurement<T, N, M>,
 {
-    fn predict(&mut self) -> &SVector<T, N> {
+    type Error = KfError;
+    fn predict(&mut self) -> Result<&SVector<T, N>, Self::Error> {
         self.kalman.predict()
     }
 }
