@@ -1,11 +1,11 @@
-//! Improved Unscented Kalman Filter implementation with Rust compatibility
-//! Fixed for Rust type system limitations and nalgebra compatibility
+//! Unscented Kalman Filter implementation
 
 use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
     kalman::{KalmanFilter, KalmanPredict},
-    system::{LinearNoInputSystem, LinearSystem, NoInputSystem, System},
+    system::{InputSystem, LinearNoInputSystem, LinearSystem, NoInputSystem, System},
+    KalmanPredictInput,
 };
 
 /// Structured error type for UKF operations
@@ -19,16 +19,6 @@ pub enum UKFError {
     InvalidParameters,
     /// Numerical instability detected
     NumericalInstability,
-}
-
-impl core::fmt::Display for UKFError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            UKFError::SingularMatrix => write!(f, "Singular matrix encountered"),
-            UKFError::InvalidParameters => write!(f, "Invalid UKF parameters"),
-            UKFError::NumericalInstability => write!(f, "Numerical instability detected"),
-        }
-    }
 }
 
 /// Result type for UKF operations
@@ -82,22 +72,10 @@ impl<T: RealField + Copy> UKFParameters<T> {
         }
     }
 
-    /// Calculate lambda parameter
-    #[inline]
+    /// Calculate lambda parameter    
     pub fn lambda(&self, n: usize) -> T {
-        let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
+        let n_f = T::from_usize(n).unwrap();
         self.alpha * self.alpha * (n_f + self.kappa) - n_f
-    }
-
-    /// Check if parameters will cause numerical issues for given dimension
-    pub fn is_numerically_stable(&self, n: usize) -> bool {
-        let n_f = T::from_usize(n).unwrap_or_else(|| T::zero());
-        let lambda = self.lambda(n);
-        let denominator = n_f + lambda;
-
-        let min_abs_denom =
-            T::from_f64(1e-10).unwrap_or_else(|| T::one() / T::from_f64(1e10).unwrap_or(T::one()));
-        denominator.abs() >= min_abs_denom
     }
 }
 
@@ -128,9 +106,9 @@ pub struct SigmaPoints<T: RealField + Copy, const N: usize, const X: usize> {
 }
 
 impl<T: RealField + Copy, const N: usize, const X: usize> SigmaPoints<T, N, X> {
-    /// Generate sigma points based on the Uhlmann paper
+    /// Generate sigma points based on the common use of the parameters (e.g Wan and van der Merwe)
     #[track_caller]
-    pub fn generate(
+    pub fn new(
         mean: &SVector<T, N>,
         covariance: &SMatrix<T, N, N>,
         params: &UKFParameters<T>,
@@ -140,21 +118,19 @@ impl<T: RealField + Copy, const N: usize, const X: usize> SigmaPoints<T, N, X> {
         let _ = <Self as ValidSigma>::VALID;
 
         let n_f = T::from_usize(N).unwrap();
-
         let mut points = [SVector::<T, N>::zeros(); X];
 
         // First point is the mean
         points[0] = *mean;
         // Assign weights
-        let mean_weight = params.kappa / (n_f + params.kappa);
-        let mean_cov_weight = mean_weight;
-        let weight = T::one() / (T::from_f32(2.0).unwrap() * (n_f + params.kappa));
+        let lambda = params.lambda(N);
+        let mean_weight = lambda / (n_f + lambda);
+        let mean_cov_weight = mean_weight + (T::one() - params.alpha.powi(2) + params.beta);
+        let weight = T::one() / (T::from_f32(2.0).unwrap() * (n_f + lambda));
 
         // Covariance square root
-        let sqrt = (covariance * (n_f + params.kappa))
-            .cholesky()
-            .ok_or(UKFError::SingularMatrix)?
-            .l();
+        let sqrt =
+            (covariance).cholesky().ok_or(UKFError::SingularMatrix)?.l() * (n_f + lambda).sqrt();
 
         // Fill the rest of the points
         // Split into positive and negative halfs, ignore the first point
@@ -193,33 +169,6 @@ where
     params: UKFParameters<T>,
 }
 
-/// Builder for creating UKF instances with better ergonomics
-pub struct UKFBuilder<T: RealField + Copy> {
-    /// UKF parameters
-    params: UKFParameters<T>,
-}
-
-impl<T: RealField + Copy> Default for UKFBuilder<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T: RealField + Copy> UKFBuilder<T> {
-    /// Create a new builder with default parameters
-    pub fn new() -> Self {
-        Self {
-            params: UKFParameters::default(),
-        }
-    }
-
-    /// Set custom UKF parameters
-    pub fn with_params(mut self, params: UKFParameters<T>) -> Self {
-        self.params = params;
-        self
-    }
-}
-
 impl<T: RealField + Copy, const N: usize, const U: usize, const X: usize, S> ValidSigma
     for UnscentedKalman<T, N, U, X, S>
 where
@@ -233,8 +182,7 @@ where
     T: RealField + Copy,
     S: System<T, N, U>,
 {
-    /// Create new UKF with custom system
-    #[track_caller]
+    /// Create new UKF with custom system    
     pub fn new_custom(system: S, initial_covariance: SMatrix<T, N, N>) -> Self {
         #[allow(clippy::let_unit_value)]
         let _ = <Self as ValidSigma>::VALID;
@@ -245,8 +193,7 @@ where
         }
     }
 
-    /// Create new UKF with custom parameters
-    #[track_caller]
+    /// Create new UKF with custom parameters    
     pub fn new_custom_with_params(
         system: S,
         initial_covariance: SMatrix<T, N, N>,
@@ -260,16 +207,40 @@ where
     }
 
     /// Generate sigma points from current state
-    #[track_caller]
-    #[inline]
     fn generate_sigma_points(&self) -> UKFResult<SigmaPoints<T, N, X>> {
-        SigmaPoints::generate(self.system.state(), &self.P, &self.params)
+        SigmaPoints::new(self.system.state(), &self.P, &self.params)
+    }
+
+    /// Calculate the mean and covariance based on a vector of predicted states
+    fn calculate_mean_and_covariance(
+        &self,
+        predicted_states: &[SVector<T, N>],
+        sigma_points: &SigmaPoints<T, N, X>,
+    ) -> (SVector<T, N>, SMatrix<T, N, N>) {
+        // Calculate weighted mean
+        let mut predicted_mean = predicted_states[0] * sigma_points.mean_weight;
+        for state in predicted_states.iter().skip(1) {
+            predicted_mean += state * sigma_points.weight;
+        }
+        // Calculate weighted covariance
+        let mut cov = ((predicted_states[0] - predicted_mean)
+            * (predicted_states[0] - predicted_mean).transpose())
+            * sigma_points.mean_cov_weight;
+        for state in predicted_states.iter().skip(1) {
+            let diff = state - predicted_mean;
+            cov += (diff * diff.transpose()) * sigma_points.weight;
+        }
+        // Add the process covariance
+        // This isn't how the original paper does it (augments state vector and covariance with process noise)
+        // But is a simplified version that's much easier to implement
+        cov += self.system.covariance();
+        (predicted_mean, cov)
     }
 }
 
 /// Implement KalmanFilter trait for UnscentedKalman
-impl<T, const N: usize, const U: usize, const MAX_POINTS: usize, S> KalmanFilter<T, N, S>
-    for UnscentedKalman<T, N, U, MAX_POINTS, S>
+impl<T, const N: usize, const U: usize, const X: usize, S> KalmanFilter<T, N, S>
+    for UnscentedKalman<T, N, U, X, S>
 where
     T: RealField + Copy,
     S: System<T, N, U>,
@@ -310,23 +281,36 @@ where
         let sigma_points = self.generate_sigma_points()?;
         // map each point to a predicted state
         let predicted_states = sigma_points.points.map(|point| self.system.predict(&point));
-        // Calculate weighted mean
-        let mut predicted_mean = predicted_states[0] * sigma_points.mean_weight;
-        for state in predicted_states.iter().skip(1) {
-            predicted_mean += state * sigma_points.weight;
-        }
-        // Calculate weighted covariance
-        let mut cov = ((predicted_states[0] - predicted_mean)
-            * (predicted_states[0] - predicted_mean).transpose())
-            * sigma_points.mean_cov_weight;
-        for state in predicted_states.iter().skip(1) {
-            let diff = state - predicted_mean;
-            cov += (diff * diff.transpose()) * sigma_points.weight;
-        }
-        // Add the process covariance
-        // This isn't how the original paper does it (augments state vector and covariance with process noise)
-        // But is a simplified version that's much easier to implement
-        cov += self.system.covariance();
+        let (predicted_mean, cov) =
+            self.calculate_mean_and_covariance(&predicted_states, &sigma_points);
+        // Assign the new mean and covariance to the system
+        *self.system.state_mut() = predicted_mean;
+        self.P = cov;
+        // Return reference to new state
+        Ok(self.system.state())
+    }
+}
+
+/// UKF Prediction for system with input
+impl<T, const N: usize, const U: usize, const X: usize, S> KalmanPredictInput<T, N, U>
+    for UnscentedKalman<T, N, U, X, S>
+where
+    T: RealField + Copy,
+    S: InputSystem<T, N, U>,
+{
+    type Error = UKFError;
+    fn predict(&mut self, u: SVector<T, U>) -> Result<&SVector<T, N>, Self::Error> {
+        // Generate sigma points and weights, pass through system predict
+        // and calculate predicted mean and covariance
+
+        // Generate sigma points
+        let sigma_points = self.generate_sigma_points()?;
+        // map each point to a predicted state
+        let predicted_states = sigma_points
+            .points
+            .map(|point| self.system.predict(&point, &u));
+        let (predicted_mean, cov) =
+            self.calculate_mean_and_covariance(&predicted_states, &sigma_points);
         // Assign the new mean and covariance to the system
         *self.system.state_mut() = predicted_mean;
         self.P = cov;
@@ -384,18 +368,44 @@ mod tests {
     use rand::Rng;
     use test_log::test;
 
+    fn rand_covariance<const N: usize>() -> SMatrix<f64, N, N> {
+        let mut rng = rand::thread_rng();
+        SMatrix::from_diagonal(&SVector::from_fn(|_, _| rng.gen_range(0.1..1.0)))
+    }
+
+    fn rand_state<const N: usize>() -> SVector<f64, N> {
+        let mut rng = rand::thread_rng();
+        SVector::from_fn(|_, _| rng.gen_range(-1.0..1.0))
+    }
+
+    fn check_sigma_points<const N: usize, const U: usize, const X: usize>() {
+        for _ in 0..100 {
+            let alpha = rand::thread_rng().gen_range(0.0001..1.0);
+            let beta = rand::thread_rng().gen_range(0.0..5.0);
+            let kappa = rand::thread_rng().gen_range(0.0..3.0);
+            let params = UKFParameters::new(alpha, beta, kappa).unwrap();
+            // Print the params
+            debug!("UKF Parameters: {params:?}");
+            debug!("Lambda: {}", params.lambda(N));
+            // create mean and covariance
+            let mean = rand_state::<N>();
+            let cov = rand_covariance::<N>();
+            debug!("Mean: {mean:?}");
+            debug!("Covariance: {cov:?}");
+            let sigma_points = SigmaPoints::<f64, N, X>::new(&mean, &cov, &params).unwrap();
+            debug!("Sigma Points: {sigma_points:?}");
+            // Check that the sum of weights is 1
+            let weight = 2.0 * (N as f64) * sigma_points.weight + sigma_points.mean_weight;
+            debug!("Sum of weights: {weight}");
+            assert!((weight - 1.0).abs() < 1e-10);
+        }
+    }
+
     #[test]
     fn sigma_points() {
-        let mean = Vector2::new(1.0, 2.0);
-        let cov = Matrix2::identity();
-        let params = UKFParameters::<f64>::default();
-
-        let sigma_points = SigmaPoints::<f64, 2, 5>::generate(&mean, &cov, &params);
-
-        assert!(sigma_points.is_ok());
-        let sigma_points = sigma_points.unwrap();
-        // Central point should be the mean
-        assert!((sigma_points.points[0] - mean).norm() < 1e-10);
+        check_sigma_points::<2, 0, 5>();
+        check_sigma_points::<3, 0, 7>();
+        check_sigma_points::<4, 0, 9>();
     }
 
     fn compare_to_kf_predict_identity<const N: usize, const X: usize>() {
@@ -442,11 +452,16 @@ mod tests {
             SVector::<f64, N>::from_fn(|_, _| rand::prelude::thread_rng().gen_range(-1.0..1.0));
         // Create a random F matrix
         let F = SMatrix::<f64, N, N>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
-        let mut kf =
-            Kalman::<f64, N, 0, _>::new(F, SMatrix::identity(), x_initial, SMatrix::identity());
+        let Q = SMatrix::from_diagonal(&SVector::<f64, N>::from_fn(|_, _| {
+            rand::thread_rng().gen_range(0.01..0.1)
+        }));
+        let P = SMatrix::from_diagonal(&SVector::<f64, N>::from_fn(|_, _| {
+            rand::thread_rng().gen_range(0.1..1.0)
+        }));
+        let mut kf = Kalman::<f64, N, 0, _>::new(F, Q, x_initial, P);
 
         let mut ukf: UnscentedKalman<f64, N, 0, X, _> =
-            UnscentedKalman::new_linear(F, SMatrix::identity(), x_initial, SMatrix::identity());
+            UnscentedKalman::new_linear(F, Q, x_initial, P);
 
         for _ in 0..10 {
             kf.predict().unwrap();
@@ -462,6 +477,42 @@ mod tests {
         }
     }
 
+    fn compare_to_kf_predict_input<const N: usize, const U: usize, const X: usize>() {
+        // Create linear no input kf and check ukf produces same result
+        let x_initial = SVector::<f64, N>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let F = SMatrix::<f64, N, N>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let B = SMatrix::<f64, N, U>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let Q = SMatrix::from_diagonal(&SVector::<f64, N>::from_fn(|_, _| {
+            rand::thread_rng().gen_range(0.01..0.1)
+        }));
+        let P = SMatrix::from_diagonal(&SVector::<f64, N>::from_fn(|_, _| {
+            rand::thread_rng().gen_range(0.1..1.0)
+        }));
+
+        let mut kf = Kalman::<f64, N, U, _>::new_with_input(F, Q, B, x_initial, P);
+
+        let mut ukf: UnscentedKalman<f64, N, U, X, _> =
+            UnscentedKalman::new_linear_with_input(F, Q, B, x_initial, P);
+
+        let u = SVector::<f64, U>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let kf_state = kf.predict(u).unwrap();
+        let ukf_state = ukf.predict(u).unwrap();
+        debug!("KF State: {kf_state:?}");
+        debug!("UKF State: {ukf_state:?}");
+        // Check that predicted state is the same
+        assert!(kf_state
+            .iter()
+            .zip(ukf_state.iter())
+            .all(|(a, b)| (a - b).abs() < 1e-5));
+        debug!("KF Covariance: {:?}", kf.covariance());
+        debug!("UKF Covariance: {:?}", ukf.covariance());
+        // Check that covariance is the same
+        assert!(kf
+            .covariance()
+            .iter()
+            .zip(ukf.covariance().iter())
+            .all(|(a, b)| (a - b).abs() < 1e-5));
+    }
     #[test]
     fn compare_to_kf_predict() {
         // Compare different sizes to linear kf with no input
@@ -481,6 +532,12 @@ mod tests {
         compare_to_kf_predict_random::<5, 11>();
         compare_to_kf_predict_random::<6, 13>();
         compare_to_kf_predict_random::<12, 25>();
+
+        // System with inputs
+        compare_to_kf_predict_input::<1, 1, 3>();
+        compare_to_kf_predict_input::<2, 1, 5>();
+        compare_to_kf_predict_input::<2, 2, 5>();
+        compare_to_kf_predict_input::<2, 3, 5>();
     }
 
     // #[test]
@@ -533,7 +590,7 @@ mod tests {
         let cov = Matrix2::identity();
         let params = UKFParameters::<T>::default();
 
-        let sigma_points = SigmaPoints::<T, 2, 5>::generate(&mean, &cov, &params).unwrap();
+        let sigma_points = SigmaPoints::<T, 2, 5>::new(&mean, &cov, &params).unwrap();
         println!("Sigma Points: {sigma_points:?}");
 
         assert!((sigma_points.points[0] - mean).norm() < 1e-10);
