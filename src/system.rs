@@ -32,14 +32,24 @@ pub trait LinearisableSystem<T, const N: usize, const U: usize>: System<T, N, U>
 /// A System with an input.
 pub trait InputSystem<T, const N: usize, const U: usize>: System<T, N, U> {
     /// transition to the next state, returning a reference to it
-    fn step(&mut self, u: SVector<T, U>) -> &SVector<T, N>;
+    fn step(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
+        *self.state_mut() = self.predict(self.state(), &u);
+        self.state()
+    }
+    /// Predict the next state based on the given state and input
+    fn predict(&self, x: &SVector<T, N>, u: &SVector<T, U>) -> SVector<T, N>;
 }
 
 // ========================== Linear Systems =================================
 /// A System without an input.
 pub trait NoInputSystem<T, const N: usize>: System<T, N, 0> {
     /// transition to the next state, returning a reference to it
-    fn step(&mut self) -> &SVector<T, N>;
+    fn step(&mut self) -> &SVector<T, N> {
+        *self.state_mut() = self.predict(self.state());
+        self.state()
+    }
+    /// Predict the next state based on the given state
+    fn predict(&self, x: &SVector<T, N>) -> SVector<T, N>;
 }
 
 /// A linear system with an input.
@@ -122,9 +132,8 @@ impl<T: RealField + Copy, const N: usize, const U: usize> LinearisableSystem<T, 
 impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
     for LinearSystem<T, N, U>
 {
-    fn step(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
-        self.x = self.F * self.x + self.B * u;
-        &self.x
+    fn predict(&self, x: &SVector<T, N>, u: &SVector<T, U>) -> SVector<T, N> {
+        self.F * x + self.B * u
     }
 }
 
@@ -194,9 +203,8 @@ impl<T: RealField + Copy, const N: usize> LinearisableSystem<T, N, 0>
 }
 
 impl<T: RealField + Copy, const N: usize> NoInputSystem<T, N> for LinearNoInputSystem<T, N> {
-    fn step(&mut self) -> &SVector<T, N> {
-        self.x = self.F * self.x;
-        &self.x
+    fn predict(&self, x: &SVector<T, N>) -> SVector<T, N> {
+        self.F * x
     }
 }
 
@@ -301,6 +309,11 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
         self.Q = r.covariance;
         // Return state
         self.state()
+    }
+
+    fn predict(&self, x: &SVector<T, N>, u: &SVector<T, U>) -> SVector<T, N> {
+        let r = (self.step_fn)(*x, *u);
+        r.state
     }
 }
 

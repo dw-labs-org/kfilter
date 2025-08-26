@@ -27,6 +27,7 @@ pub enum KfError {
 
 /// Base trait for [Kalman] or wrappers around it. Allows viewing the state and covariance
 /// and modifying the covariance.
+///
 /// Modifying the covariance can be necessary if it becomes non symmetric.
 pub trait KalmanFilter<T, const N: usize, S> {
     /// Get a reference to the state
