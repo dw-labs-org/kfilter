@@ -25,6 +25,7 @@ fn main() {
         // constant acceleration input
         let x_predicted = k.predict(Matrix1::new(1.0)).unwrap().x;
         let x_measured = x_real + noise.sample(&mut rng);
+
         k.update(Matrix1::new(x_measured)).unwrap();
         let x_updated = k.state().x;
         println!("{x_real}, {x_measured}, {x_predicted}, {x_updated}");

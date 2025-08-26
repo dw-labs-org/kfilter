@@ -13,10 +13,6 @@ use nalgebra::{RealField, SMatrix, SVector};
 
 /// Base trait for a system which must also implement [InputSystem] or [NoInputSystem].
 pub trait System<T, const N: usize, const U: usize> {
-    /// Get the transition matrix (Jacobian)
-    fn transition(&self) -> &SMatrix<T, N, N>;
-    /// Get the transpose of the transition matrix
-    fn transition_transpose(&self) -> &SMatrix<T, N, N>;
     /// Get a reference to the process covariance matrix
     fn covariance(&self) -> &SMatrix<T, N, N>;
     /// Get a reference to the state
@@ -25,17 +21,35 @@ pub trait System<T, const N: usize, const U: usize> {
     fn state_mut(&mut self) -> &mut SVector<T, N>;
 }
 
+/// A System which has (or can generate) a transition matrix/Jacobian
+pub trait LinearisableSystem<T, const N: usize, const U: usize>: System<T, N, U> {
+    /// Get the transition matrix (Jacobian)
+    fn transition(&self) -> &SMatrix<T, N, N>;
+    /// Get the transpose of the transition matrix
+    fn transition_transpose(&self) -> &SMatrix<T, N, N>;
+}
+
 /// A System with an input.
 pub trait InputSystem<T, const N: usize, const U: usize>: System<T, N, U> {
     /// transition to the next state, returning a reference to it
-    fn step(&mut self, u: SVector<T, U>) -> &SVector<T, N>;
+    fn step(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
+        *self.state_mut() = self.predict(self.state(), &u);
+        self.state()
+    }
+    /// Predict the next state based on the given state and input
+    fn predict(&self, x: &SVector<T, N>, u: &SVector<T, U>) -> SVector<T, N>;
 }
 
 // ========================== Linear Systems =================================
 /// A System without an input.
 pub trait NoInputSystem<T, const N: usize>: System<T, N, 0> {
     /// transition to the next state, returning a reference to it
-    fn step(&mut self) -> &SVector<T, N>;
+    fn step(&mut self) -> &SVector<T, N> {
+        *self.state_mut() = self.predict(self.state());
+        self.state()
+    }
+    /// Predict the next state based on the given state
+    fn predict(&self, x: &SVector<T, N>) -> SVector<T, N>;
 }
 
 /// A linear system with an input.
@@ -90,13 +104,6 @@ impl<T: RealField + Copy, const N: usize, const U: usize> LinearSystem<T, N, U> 
 impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
     for LinearSystem<T, N, U>
 {
-    fn transition(&self) -> &SMatrix<T, N, N> {
-        &self.F
-    }
-    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
-        &self.F_t
-    }
-
     fn covariance(&self) -> &SMatrix<T, N, N> {
         &self.Q
     }
@@ -110,13 +117,23 @@ impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
     }
 }
 
+impl<T: RealField + Copy, const N: usize, const U: usize> LinearisableSystem<T, N, U>
+    for LinearSystem<T, N, U>
+{
+    fn transition(&self) -> &SMatrix<T, N, N> {
+        &self.F
+    }
+    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
+        &self.F_t
+    }
+}
+
 /// impl [InputSystem] for [LinearSystem]
 impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
     for LinearSystem<T, N, U>
 {
-    fn step(&mut self, u: SVector<T, U>) -> &SVector<T, N> {
-        self.x = self.F * self.x + self.B * u;
-        &self.x
+    fn predict(&self, x: &SVector<T, N>, u: &SVector<T, U>) -> SVector<T, N> {
+        self.F * x + self.B * u
     }
 }
 
@@ -161,13 +178,6 @@ impl<T: RealField + Copy, const N: usize> LinearNoInputSystem<T, N> {
 }
 
 impl<T: RealField + Copy, const N: usize> System<T, N, 0> for LinearNoInputSystem<T, N> {
-    fn transition(&self) -> &SMatrix<T, N, N> {
-        &self.F
-    }
-    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
-        &self.F_t
-    }
-
     fn covariance(&self) -> &SMatrix<T, N, N> {
         &self.Q
     }
@@ -181,10 +191,20 @@ impl<T: RealField + Copy, const N: usize> System<T, N, 0> for LinearNoInputSyste
     }
 }
 
+impl<T: RealField + Copy, const N: usize> LinearisableSystem<T, N, 0>
+    for LinearNoInputSystem<T, N>
+{
+    fn transition(&self) -> &SMatrix<T, N, N> {
+        &self.F
+    }
+    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
+        &self.F_t
+    }
+}
+
 impl<T: RealField + Copy, const N: usize> NoInputSystem<T, N> for LinearNoInputSystem<T, N> {
-    fn step(&mut self) -> &SVector<T, N> {
-        self.x = self.F * self.x;
-        &self.x
+    fn predict(&self, x: &SVector<T, N>) -> SVector<T, N> {
+        self.F * x
     }
 }
 
@@ -253,14 +273,6 @@ impl<T: RealField, const N: usize, const U: usize> NonLinearSystem<T, N, U> {
 impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
     for NonLinearSystem<T, N, U>
 {
-    fn transition(&self) -> &SMatrix<T, N, N> {
-        &self.F
-    }
-
-    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
-        &self.F_t
-    }
-
     fn covariance(&self) -> &SMatrix<T, N, N> {
         &self.Q
     }
@@ -271,6 +283,17 @@ impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
 
     fn state_mut(&mut self) -> &mut SVector<T, N> {
         &mut self.x
+    }
+}
+
+impl<T: RealField + Copy, const N: usize, const U: usize> LinearisableSystem<T, N, U>
+    for NonLinearSystem<T, N, U>
+{
+    fn transition(&self) -> &SMatrix<T, N, N> {
+        &self.F
+    }
+    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
+        &self.F_t
     }
 }
 
@@ -286,6 +309,11 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
         self.Q = r.covariance;
         // Return state
         self.state()
+    }
+
+    fn predict(&self, x: &SVector<T, N>, u: &SVector<T, U>) -> SVector<T, N> {
+        let r = (self.step_fn)(*x, *u);
+        r.state
     }
 }
 
