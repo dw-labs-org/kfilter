@@ -13,16 +13,20 @@ use nalgebra::{RealField, SMatrix, SVector};
 
 /// Base trait for a system which must also implement [InputSystem] or [NoInputSystem].
 pub trait System<T, const N: usize, const U: usize> {
-    /// Get the transition matrix (Jacobian)
-    fn transition(&self) -> &SMatrix<T, N, N>;
-    /// Get the transpose of the transition matrix
-    fn transition_transpose(&self) -> &SMatrix<T, N, N>;
     /// Get a reference to the process covariance matrix
     fn covariance(&self) -> &SMatrix<T, N, N>;
     /// Get a reference to the state
     fn state(&self) -> &SVector<T, N>;
     /// Get a mutable reference to the state
     fn state_mut(&mut self) -> &mut SVector<T, N>;
+}
+
+/// A System which has (or can generate) a transition matrix/Jacobian
+pub trait LinearisableSystem<T, const N: usize, const U: usize>: System<T, N, U> {
+    /// Get the transition matrix (Jacobian)
+    fn transition(&self) -> &SMatrix<T, N, N>;
+    /// Get the transpose of the transition matrix
+    fn transition_transpose(&self) -> &SMatrix<T, N, N>;
 }
 
 /// A System with an input.
@@ -90,13 +94,6 @@ impl<T: RealField + Copy, const N: usize, const U: usize> LinearSystem<T, N, U> 
 impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
     for LinearSystem<T, N, U>
 {
-    fn transition(&self) -> &SMatrix<T, N, N> {
-        &self.F
-    }
-    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
-        &self.F_t
-    }
-
     fn covariance(&self) -> &SMatrix<T, N, N> {
         &self.Q
     }
@@ -107,6 +104,17 @@ impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
 
     fn state_mut(&mut self) -> &mut SVector<T, N> {
         &mut self.x
+    }
+}
+
+impl<T: RealField + Copy, const N: usize, const U: usize> LinearisableSystem<T, N, U>
+    for LinearSystem<T, N, U>
+{
+    fn transition(&self) -> &SMatrix<T, N, N> {
+        &self.F
+    }
+    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
+        &self.F_t
     }
 }
 
@@ -161,13 +169,6 @@ impl<T: RealField + Copy, const N: usize> LinearNoInputSystem<T, N> {
 }
 
 impl<T: RealField + Copy, const N: usize> System<T, N, 0> for LinearNoInputSystem<T, N> {
-    fn transition(&self) -> &SMatrix<T, N, N> {
-        &self.F
-    }
-    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
-        &self.F_t
-    }
-
     fn covariance(&self) -> &SMatrix<T, N, N> {
         &self.Q
     }
@@ -178,6 +179,17 @@ impl<T: RealField + Copy, const N: usize> System<T, N, 0> for LinearNoInputSyste
 
     fn state_mut(&mut self) -> &mut SVector<T, N> {
         &mut self.x
+    }
+}
+
+impl<T: RealField + Copy, const N: usize> LinearisableSystem<T, N, 0>
+    for LinearNoInputSystem<T, N>
+{
+    fn transition(&self) -> &SMatrix<T, N, N> {
+        &self.F
+    }
+    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
+        &self.F_t
     }
 }
 
@@ -253,14 +265,6 @@ impl<T: RealField, const N: usize, const U: usize> NonLinearSystem<T, N, U> {
 impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
     for NonLinearSystem<T, N, U>
 {
-    fn transition(&self) -> &SMatrix<T, N, N> {
-        &self.F
-    }
-
-    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
-        &self.F_t
-    }
-
     fn covariance(&self) -> &SMatrix<T, N, N> {
         &self.Q
     }
@@ -271,6 +275,17 @@ impl<T: RealField + Copy, const N: usize, const U: usize> System<T, N, U>
 
     fn state_mut(&mut self) -> &mut SVector<T, N> {
         &mut self.x
+    }
+}
+
+impl<T: RealField + Copy, const N: usize, const U: usize> LinearisableSystem<T, N, U>
+    for NonLinearSystem<T, N, U>
+{
+    fn transition(&self) -> &SMatrix<T, N, N> {
+        &self.F
+    }
+    fn transition_transpose(&self) -> &SMatrix<T, N, N> {
+        &self.F_t
     }
 }
 

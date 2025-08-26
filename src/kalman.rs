@@ -7,8 +7,8 @@ use nalgebra::{RealField, SMatrix, SVector};
 use crate::{
     measurement::{LinearMeasurement, Measurement},
     system::{
-        InputSystem, LinearNoInputSystem, LinearSystem, NoInputSystem, NonLinearSystem,
-        StepFunction, System,
+        InputSystem, LinearNoInputSystem, LinearSystem, LinearisableSystem, NoInputSystem,
+        NonLinearSystem, StepFunction, System,
     },
 };
 
@@ -186,8 +186,9 @@ where
 }
 
 /// Implement the predict stage for a system with no input
-impl<T: RealField + Copy, const N: usize, S: NoInputSystem<T, N>> KalmanPredict<T, N>
-    for Kalman<T, N, 0, S>
+impl<T: RealField + Copy, const N: usize, S> KalmanPredict<T, N> for Kalman<T, N, 0, S>
+where
+    S: NoInputSystem<T, N> + LinearisableSystem<T, N, 0>,
 {
     type Error = KfError;
 
@@ -200,8 +201,10 @@ impl<T: RealField + Copy, const N: usize, S: NoInputSystem<T, N>> KalmanPredict<
 }
 
 /// Implement the predict stage for a system with input
-impl<T: RealField + Copy, const N: usize, const U: usize, S: InputSystem<T, N, U>>
-    KalmanPredictInput<T, N, U> for Kalman<T, N, U, S>
+impl<T: RealField + Copy, const N: usize, const U: usize, S> KalmanPredictInput<T, N, U>
+    for Kalman<T, N, U, S>
+where
+    S: InputSystem<T, N, U> + LinearisableSystem<T, N, U>,
 {
     type Error = KfError;
 
@@ -418,7 +421,7 @@ impl<T, const N: usize, const U: usize, const M: usize, S, ME> KalmanPredictInpu
     for Kalman1M<T, N, U, M, S, ME>
 where
     T: RealField + Copy,
-    S: InputSystem<T, N, U>,
+    S: InputSystem<T, N, U> + LinearisableSystem<T, N, U>,
     ME: Measurement<T, N, M>,
 {
     type Error = KfError;
@@ -431,7 +434,7 @@ where
 impl<T, const N: usize, const M: usize, S, ME> KalmanPredict<T, N> for Kalman1M<T, N, 0, M, S, ME>
 where
     T: RealField + Copy,
-    S: NoInputSystem<T, N>,
+    S: NoInputSystem<T, N> + LinearisableSystem<T, N, 0>,
     ME: Measurement<T, N, M>,
 {
     type Error = KfError;
