@@ -647,12 +647,75 @@ mod tests {
         }
     }
 
+    fn compare_to_kf_input<const N: usize, const U: usize, const X: usize, const M: usize>() {
+        // Create linear no input kf and check ukf produces same result
+        let x_initial = SVector::<f64, N>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        // Create a random F matrix
+        let F = SMatrix::<f64, N, N>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let B = SMatrix::<f64, N, U>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let Q = SMatrix::from_diagonal(&SVector::<f64, N>::from_fn(|_, _| {
+            rand::thread_rng().gen_range(0.01..0.1)
+        }));
+        let H = SMatrix::<f64, M, N>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let R = SMatrix::from_diagonal(&SVector::<f64, M>::from_fn(|_, _| {
+            rand::thread_rng().gen_range(0.1..1.0)
+        }));
+        let P = SMatrix::from_diagonal(&SVector::<f64, N>::from_fn(|_, _| {
+            rand::thread_rng().gen_range(0.1..1.0)
+        }));
+        let mut kf = Kalman::<f64, N, U, _>::new_with_input(F, Q, B, x_initial, P);
+        let measurement =
+            SVector::<f64, M>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+        let meas_model = crate::measurement::LinearMeasurement::new(H, R, measurement);
+
+        let mut ukf: UnscentedKalman<f64, N, U, X, _> =
+            UnscentedKalman::new_linear_with_input(F, Q, B, x_initial, P);
+
+        for _ in 0..10 {
+            let u = SVector::<f64, U>::from_fn(|_, _| rand::thread_rng().gen_range(-1.0..1.0));
+            kf.predict(u).unwrap();
+            ukf.predict(u).unwrap();
+            debug!(target: "test", "KF Covariance: {:?}", kf.covariance());
+            debug!(target: "test", "UKF Covariance: {:?}", ukf.covariance());
+            // Check that each covariance value is with tolerance
+            assert!(kf
+                .covariance()
+                .iter()
+                .zip(ukf.covariance().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-5));
+
+            kf.update(&meas_model).unwrap();
+            ukf.update(&meas_model).unwrap();
+            debug!(target: "test", "KF State: {:?}", kf.state());
+            debug!(target: "test", "UKF State: {:?}", ukf.state());
+            // Check that each state value is with tolerance
+            assert!(kf
+                .state()
+                .iter()
+                .zip(ukf.state().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-5));
+            debug!(target: "test", "KF Covariance after update: {:?}", kf.covariance());
+            debug!(target: "test", "UKF Covariance after update: {:?}", ukf.covariance());
+            // Check that each covariance value is with tolerance
+            assert!(kf
+                .covariance()
+                .iter()
+                .zip(ukf.covariance().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-5));
+        }
+    }
+
     #[test]
     fn compare_to_kf_update() {
         compare_to_kf::<1, 3, 1>();
         compare_to_kf::<2, 5, 1>();
         compare_to_kf::<3, 7, 3>();
         compare_to_kf::<6, 13, 6>();
+
+        compare_to_kf_input::<1, 1, 3, 1>();
+        compare_to_kf_input::<2, 2, 5, 1>();
+        compare_to_kf_input::<3, 3, 7, 3>();
+        compare_to_kf_input::<6, 6, 13, 6>();
     }
 
     #[test]
