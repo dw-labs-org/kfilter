@@ -4,8 +4,9 @@ use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
     kalman::{KalmanFilter, KalmanPredict},
+    measurement::Measurement,
     system::{InputSystem, LinearNoInputSystem, LinearSystem, NoInputSystem, System},
-    KalmanPredictInput,
+    KalmanPredictInput, KalmanUpdate,
 };
 
 /// Structured error type for UKF operations
@@ -38,8 +39,7 @@ pub struct UKFParameters<T: RealField + Copy> {
 }
 
 impl<T: RealField + Copy> UKFParameters<T> {
-    /// Create new UKF parameters with validation
-    #[track_caller]
+    /// Create new UKF parameters with validation    
     pub fn new(alpha: T, beta: T, kappa: T) -> UKFResult<Self> {
         let zero = T::zero();
         let one = T::one();
@@ -107,7 +107,6 @@ pub struct SigmaPoints<T: RealField + Copy, const N: usize, const X: usize> {
 
 impl<T: RealField + Copy, const N: usize, const X: usize> SigmaPoints<T, N, X> {
     /// Generate sigma points based on the common use of the parameters (e.g Wan and van der Merwe)
-    #[track_caller]
     pub fn new(
         mean: &SVector<T, N>,
         covariance: &SMatrix<T, N, N>,
@@ -147,6 +146,52 @@ impl<T: RealField + Copy, const N: usize, const X: usize> SigmaPoints<T, N, X> {
             mean_cov_weight,
             weight,
         })
+    }
+
+    /// Take a vector of either system or measurement predictions and calculate the mean and covariance
+    fn mean_and_covariance<const L: usize>(
+        &self,
+        predictions: &[SVector<T, L>; X],
+        covariance: &SMatrix<T, L, L>,
+    ) -> (SVector<T, L>, SMatrix<T, L, L>) {
+        // Calculate weighted mean
+        let mut mean = predictions[0] * self.mean_weight;
+        for pred in predictions.iter().skip(1) {
+            mean += pred * self.weight;
+        }
+
+        // Calculate weighted covariance
+        let mut cov =
+            ((predictions[0] - mean) * (predictions[0] - mean).transpose()) * self.mean_cov_weight;
+        for pred in predictions.iter().skip(1) {
+            let diff = pred - mean;
+            cov += (diff * diff.transpose()) * self.weight;
+        }
+        cov += covariance;
+        (mean, cov)
+    }
+
+    // Cross covariance between the sigma points and the observations
+    fn cross_covariance<const L: usize>(
+        &self,
+        predicted_observations: &[SVector<T, L>; X],
+    ) -> SMatrix<T, N, L> {
+        // The mean of the sigma points is the first entry
+        // Get mean of the predicted observations
+        // let obs_mean = predicted_observations
+        //     .iter()
+        //     .map(|obs| obs * self.weight)
+        //     .sum();
+        self.points
+            .iter()
+            .zip(predicted_observations.iter())
+            .skip(1) // Skip the first point (mean)
+            .map(|(state, obs)| {
+                let state_diff = state - self.points[0];
+                let obs_diff = obs - predicted_observations[0];
+                state_diff * obs_diff.transpose() * self.weight
+            })
+            .sum()
     }
 }
 
@@ -210,32 +255,6 @@ where
     fn generate_sigma_points(&self) -> UKFResult<SigmaPoints<T, N, X>> {
         SigmaPoints::new(self.system.state(), &self.P, &self.params)
     }
-
-    /// Calculate the mean and covariance based on a vector of predicted states
-    fn calculate_mean_and_covariance(
-        &self,
-        predicted_states: &[SVector<T, N>],
-        sigma_points: &SigmaPoints<T, N, X>,
-    ) -> (SVector<T, N>, SMatrix<T, N, N>) {
-        // Calculate weighted mean
-        let mut predicted_mean = predicted_states[0] * sigma_points.mean_weight;
-        for state in predicted_states.iter().skip(1) {
-            predicted_mean += state * sigma_points.weight;
-        }
-        // Calculate weighted covariance
-        let mut cov = ((predicted_states[0] - predicted_mean)
-            * (predicted_states[0] - predicted_mean).transpose())
-            * sigma_points.mean_cov_weight;
-        for state in predicted_states.iter().skip(1) {
-            let diff = state - predicted_mean;
-            cov += (diff * diff.transpose()) * sigma_points.weight;
-        }
-        // Add the process covariance
-        // This isn't how the original paper does it (augments state vector and covariance with process noise)
-        // But is a simplified version that's much easier to implement
-        cov += self.system.covariance();
-        (predicted_mean, cov)
-    }
 }
 
 /// Implement KalmanFilter trait for UnscentedKalman
@@ -282,7 +301,7 @@ where
         // map each point to a predicted state
         let predicted_states = sigma_points.points.map(|point| self.system.predict(&point));
         let (predicted_mean, cov) =
-            self.calculate_mean_and_covariance(&predicted_states, &sigma_points);
+            sigma_points.mean_and_covariance(&predicted_states, self.system.covariance());
         // Assign the new mean and covariance to the system
         *self.system.state_mut() = predicted_mean;
         self.P = cov;
@@ -310,11 +329,46 @@ where
             .points
             .map(|point| self.system.predict(&point, &u));
         let (predicted_mean, cov) =
-            self.calculate_mean_and_covariance(&predicted_states, &sigma_points);
+            sigma_points.mean_and_covariance(&predicted_states, self.system.covariance());
         // Assign the new mean and covariance to the system
         *self.system.state_mut() = predicted_mean;
         self.P = cov;
         // Return reference to new state
+        Ok(self.system.state())
+    }
+}
+
+/// UKF Update
+impl<T, const N: usize, const U: usize, const X: usize, S, const M: usize, ME>
+    KalmanUpdate<T, N, M, ME> for UnscentedKalman<T, N, U, X, S>
+where
+    T: RealField + Copy,
+    S: System<T, N, U>,
+    ME: Measurement<T, N, M>,
+{
+    type Error = UKFError;
+
+    fn update(&mut self, measurement: &ME) -> Result<&SVector<T, N>, Self::Error> {
+        // Generate sigma points from current state(mean) and covariance
+        let sigma_points = self.generate_sigma_points()?;
+        // map each point to a predicted observation based on the measurement function
+        let predicted_observations = sigma_points.points.map(|point| measurement.predict(&point));
+        // Calculate the mean and covariance of the predictions
+        let (predicted_mean, innovation_cov) =
+            sigma_points.mean_and_covariance(&predicted_observations, measurement.covariance());
+        // calculate cross covariance between sigma points and predicted observations
+        let cross_cov = sigma_points.cross_covariance(&predicted_observations);
+        // Kalman gain is product of cross_covariance and inverse of innovation_cov
+        let kalman_gain = cross_cov
+            * innovation_cov
+                .try_inverse()
+                .ok_or(UKFError::SingularMatrix)?;
+        // Update state based on current state and measurement error
+        *self.system.state_mut() += kalman_gain * (measurement.measurement() - predicted_mean);
+        // Update covariance
+        self.P -= kalman_gain * innovation_cov * kalman_gain.transpose();
+        // Ensure covariance remains symmetric
+        self.P = self.P.symmetric_part();
         Ok(self.system.state())
     }
 }
