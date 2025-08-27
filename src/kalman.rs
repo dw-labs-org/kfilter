@@ -5,7 +5,7 @@
 use nalgebra::{RealField, SMatrix, SVector};
 
 use crate::{
-    measurement::{LinearMeasurement, Measurement},
+    measurement::{LinearMeasurement, LinearisableMeasurement, Measurement},
     system::{
         InputSystem, LinearNoInputSystem, LinearSystem, LinearisableSystem, NoInputSystem,
         NonLinearSystem, StepFunction, System,
@@ -224,20 +224,17 @@ impl<
         const M: usize,
         const U: usize,
         S: System<T, N, U>,
-        ME: Measurement<T, N, M>,
+        ME,
     > KalmanUpdate<T, N, M, ME> for Kalman<T, N, U, S>
+where
+    ME: Measurement<T, N, M> + LinearisableMeasurement<T, N, M>,
 {
     type Error = KfError;
-    /// # Panics
-    ///
-    /// Panics if the innovation covariance matrix is not invertible.
-    ///
-    /// can in particular be caused by `measurement.covariance()` not returning a positive semi-definite matrix
-    #[track_caller]
     #[allow(non_snake_case)]
     fn update(&mut self, measurement: &ME) -> Result<&SVector<T, N>, Self::Error> {
         // innovation
-        let y = measurement.innovation(self.system.state());
+        let z_p = measurement.predict(self.system.state());
+        let y = measurement.measurement() - z_p;
         // innovation covariance
         let S = measurement.observation() * self.P * measurement.observation_transpose()
             + measurement.covariance();
@@ -448,7 +445,7 @@ impl<T, const N: usize, const U: usize, const M: usize, S, ME> Kalman1M<T, N, U,
 where
     T: RealField + Copy,
     S: System<T, N, U>,
-    ME: Measurement<T, N, M>,
+    ME: LinearisableMeasurement<T, N, M>,
 {
     /// Update the state with a new measurement
     pub fn update(&mut self, z: SVector<T, M>) -> Result<&SVector<T, N>, KfError> {

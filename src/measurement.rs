@@ -11,19 +11,23 @@ use nalgebra::{RealField, SMatrix, SVector};
 /// Trait that defines the functionality for the [Kalman](crate::kalman::Kalman) filter
 /// to interact with a measurement.
 pub trait Measurement<T, const N: usize, const M: usize> {
-    /// Calculate the innovation (y) based on the measurement and the observation mapping
-    fn innovation(&self, x: &SVector<T, N>) -> SVector<T, M>;
     /// Get the measurement covariance
     fn covariance(&self) -> &SMatrix<T, M, M>;
+    /// Get the current measurement vector
+    fn measurement(&self) -> &SVector<T, M>;
+    /// Set the measurement (z) value
+    fn set_measurement(&mut self, z: SVector<T, M>);
+    /// Predict the measurement (z) based on the current state (x)
+    fn predict(&self, x: &SVector<T, N>) -> SVector<T, M>;
+}
+
+/// Linear or linearisable measurement that can provide the Jacobian matrix of the
+/// measurement function
+pub trait LinearisableMeasurement<T, const N: usize, const M: usize>: Measurement<T, N, M> {
     /// Get the observation matrix
     fn observation(&self) -> &SMatrix<T, M, N>;
     /// Get the observation matrix transpose
     fn observation_transpose(&self) -> &SMatrix<T, N, M>;
-    /// Set the measurment (z) value
-    fn set_measurement(&mut self, z: SVector<T, M>);
-    /// Set the observation matrix. Ensures transpose is updated.
-    #[allow(non_snake_case)]
-    fn set_observation(&mut self, H: SMatrix<T, M, N>);
 }
 
 #[allow(non_snake_case)]
@@ -61,29 +65,32 @@ impl<T: RealField, const N: usize, const M: usize> LinearMeasurement<T, N, M> {
 impl<T: RealField + Copy, const N: usize, const M: usize> Measurement<T, N, M>
     for LinearMeasurement<T, N, M>
 {
-    fn innovation(&self, x: &SVector<T, N>) -> SVector<T, M> {
-        self.z - (self.H * x)
-    }
-
     fn covariance(&self) -> &SMatrix<T, M, M> {
         &self.R
     }
 
+    fn set_measurement(&mut self, z: SVector<T, M>) {
+        self.z = z;
+    }
+
+    fn predict(&self, x: &SVector<T, N>) -> SVector<T, M> {
+        self.H * x
+    }
+
+    fn measurement(&self) -> &SVector<T, M> {
+        &self.z
+    }
+}
+
+impl<T: RealField + Copy, const N: usize, const M: usize> LinearisableMeasurement<T, N, M>
+    for LinearMeasurement<T, N, M>
+{
     fn observation(&self) -> &SMatrix<T, M, N> {
         &self.H
     }
 
     fn observation_transpose(&self) -> &SMatrix<T, N, M> {
         &self.H_t
-    }
-
-    fn set_measurement(&mut self, z: SVector<T, M>) {
-        self.z = z;
-    }
-    #[allow(non_snake_case)]
-    fn set_observation(&mut self, H: SMatrix<T, M, N>) {
-        self.H_t = H.transpose();
-        self.H = H;
     }
 }
 
@@ -129,28 +136,31 @@ impl<T: RealField, const N: usize, const M: usize> NonLinearMeasurement<T, N, M>
 impl<T: RealField + Copy, const N: usize, const M: usize> Measurement<T, N, M>
     for NonLinearMeasurement<T, N, M>
 {
-    fn innovation(&self, x: &SVector<T, N>) -> SVector<T, M> {
-        self.z - (self.prediction_fn)(x)
-    }
-
     fn covariance(&self) -> &SMatrix<T, M, M> {
         &self.R
     }
 
+    fn set_measurement(&mut self, z: SVector<T, M>) {
+        self.z = z;
+    }
+
+    fn predict(&self, x: &SVector<T, N>) -> SVector<T, M> {
+        (self.prediction_fn)(x)
+    }
+
+    fn measurement(&self) -> &SVector<T, M> {
+        &self.z
+    }
+}
+
+impl<T: RealField + Copy, const N: usize, const M: usize> LinearisableMeasurement<T, N, M>
+    for NonLinearMeasurement<T, N, M>
+{
     fn observation(&self) -> &SMatrix<T, M, N> {
         &self.H
     }
 
     fn observation_transpose(&self) -> &SMatrix<T, N, M> {
         &self.H_t
-    }
-
-    fn set_measurement(&mut self, z: SVector<T, M>) {
-        self.z = z;
-    }
-    #[allow(non_snake_case)]
-    fn set_observation(&mut self, H: SMatrix<T, M, N>) {
-        self.H_t = H.transpose();
-        self.H = H;
     }
 }
