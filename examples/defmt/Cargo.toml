@@ -9,5 +9,5 @@ cortex-m-rt = "0.7.5"
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 kfilter = { path = "../..", features = ["defmt"] }
-nalgebra = { version = "0.33.2", default-features = false, features = ["libm"] }
+nalgebra = { version = "0.34", default-features = false, features = ["libm"] }
 panic-probe = { version = "1.0.0", features = ["defmt"] }
