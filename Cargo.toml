@@ -36,4 +36,4 @@ rand_distr = "0.4.3"
 [features]
 serde = ["dep:serde", "nalgebra/serde-serialize"]
 std = ["nalgebra/std"]
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "nalgebra/defmt"]
