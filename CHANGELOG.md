@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.5.0](https://github.com/dw-labs-org/kfilter/compare/v0.4.0...v0.5.0) (2026-05-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* nonlinear measurements ([#64](https://github.com/dw-labs-org/kfilter/issues/64))
+* add predict to system traits
+* add linearisable system trait, split system trait
+* Kalman trait Error type, make predict and update fallible
+
+### Features
+
+* add predict to system traits ([8ee8d30](https://github.com/dw-labs-org/kfilter/commit/8ee8d30654aca852fb8481f4b5e07035eb034444))
+* Kalman trait Error type, make predict and update fallible ([1dfa09e](https://github.com/dw-labs-org/kfilter/commit/1dfa09e7c1059f4f1abedb26ec3735c0b4b59e77)), closes [#56](https://github.com/dw-labs-org/kfilter/issues/56)
+* nalgebra defmt ([dbfa0cd](https://github.com/dw-labs-org/kfilter/commit/dbfa0cd42c4193104f75ff0289b009d879810151))
+* nonlinear measurements ([#64](https://github.com/dw-labs-org/kfilter/issues/64)) ([5237932](https://github.com/dw-labs-org/kfilter/commit/52379324095830534e22115898fff4dd24abf2b1))
+
+
+### Bug Fixes
+
+* missing error on predict trait ([f1a9793](https://github.com/dw-labs-org/kfilter/commit/f1a97931856180627967e9b25f646ee39dd28304))
+* missing error on predict trait ([dec582d](https://github.com/dw-labs-org/kfilter/commit/dec582d415c401123243cdee860a1c81889d1543))
+
+
+### Miscellaneous Chores
+
+* release 0.5.0 ([#67](https://github.com/dw-labs-org/kfilter/issues/67)) ([0a3a042](https://github.com/dw-labs-org/kfilter/commit/0a3a0428a7acabc2448caabc8205c019e1f1008d))
+
+
+### Code Refactoring
+
+* add linearisable system trait, split system trait ([7c10a11](https://github.com/dw-labs-org/kfilter/commit/7c10a111be207930a1b790848f1251a3284aed49))
+
 ## [0.4.0](https://github.com/dw-labs-org/kfilter/compare/v0.3.1...v0.4.0) (2025-04-30)
 
 
