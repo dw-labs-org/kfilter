@@ -11,3 +11,8 @@ defmt-rtt = "1"
 kfilter = { path = "../..", features = ["defmt"] }
 nalgebra = { version = "0.34", default-features = false, features = ["libm"] }
 panic-probe = { version = "1.0.0", features = ["defmt"] }
+
+[[bin]]
+name = "defmt-example"
+path = "src/main.rs"
+test = false

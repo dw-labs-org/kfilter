@@ -3,5 +3,9 @@
         "Cargo.toml",
         "examples/defmt/Cargo.toml",
     ],
-    "rust-analyzer.cargo.allTargets": false
+    "rust-analyzer.cargo.allTargets": true,
+    // "rust-analyzer.check.extraArgs": [
+    //     "--bins",
+    //     "--test"
+    // ]
 }
