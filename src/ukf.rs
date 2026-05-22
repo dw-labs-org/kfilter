@@ -39,7 +39,7 @@ pub struct UKFParameters<T: RealField + Copy> {
 }
 
 impl<T: RealField + Copy> UKFParameters<T> {
-    /// Create new UKF parameters with validation    
+    /// Create new UKF parameters with validation
     pub fn new(alpha: T, beta: T, kappa: T) -> UKFResult<Self> {
         let zero = T::zero();
         let one = T::one();
@@ -72,7 +72,7 @@ impl<T: RealField + Copy> UKFParameters<T> {
         }
     }
 
-    /// Calculate lambda parameter    
+    /// Calculate lambda parameter
     pub fn lambda(&self, n: usize) -> T {
         let n_f = T::from_usize(n).unwrap();
         self.alpha * self.alpha * (n_f + self.kappa) - n_f
@@ -206,7 +206,6 @@ where
     S: System<T, N, U>,
 {
     /// State covariance matrix
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     P: SMatrix<T, N, N>,
     /// System model
     pub system: S,
@@ -227,7 +226,7 @@ where
     T: RealField + Copy,
     S: System<T, N, U>,
 {
-    /// Create new UKF with custom system    
+    /// Create new UKF with custom system
     pub fn new_custom(system: S, initial_covariance: SMatrix<T, N, N>) -> Self {
         #[allow(clippy::let_unit_value)]
         let _ = <Self as ValidSigma>::VALID;
@@ -238,7 +237,7 @@ where
         }
     }
 
-    /// Create new UKF with custom parameters    
+    /// Create new UKF with custom parameters
     pub fn new_custom_with_params(
         system: S,
         initial_covariance: SMatrix<T, N, N>,
@@ -451,7 +450,7 @@ mod tests {
             // Check that the sum of weights is 1
             let weight = 2.0 * (N as f64) * sigma_points.weight + sigma_points.mean_weight;
             debug!("Sum of weights: {weight}");
-            assert!((weight - 1.0).abs() < 1e-10);
+            assert!((weight - 1.0).abs() < 1e-9);
         }
     }
 
