@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.1](https://github.com/dw-labs-org/kfilter/compare/v0.5.0...v0.5.1) (2026-05-22)
+
+
+### Features
+
+* UKF implementation ([bd85522](https://github.com/dw-labs-org/kfilter/commit/bd8552212faf5a0c558e095c740cb70f5e9d9b05))
+
+
+### Miscellaneous Chores
+
+* release 0.5.1 ([#71](https://github.com/dw-labs-org/kfilter/issues/71)) ([1980255](https://github.com/dw-labs-org/kfilter/commit/1980255e597d2e3a1997d7b678b60447f38049c2))
+
 ## [0.5.0](https://github.com/dw-labs-org/kfilter/compare/v0.4.0...v0.5.0) (2026-05-22)
 
 
