@@ -38,14 +38,10 @@ pub trait LinearisableMeasurement<T, const N: usize, const M: usize>: Measuremen
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct LinearMeasurement<T: RealField, const N: usize, const M: usize> {
     /// Observation / measurement. Can be modifed directly to set new value.
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     pub z: SVector<T, M>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     H: SMatrix<T, M, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     H_t: SMatrix<T, N, M>,
     /// Measurement noise. Can be modifed directly to set new value.
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     pub R: SMatrix<T, M, M>,
 }
 
@@ -105,14 +101,10 @@ pub type Prediction<T, const N: usize, const M: usize> = fn(&SVector<T, N>) -> S
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NonLinearMeasurement<T, const N: usize, const M: usize> {
     /// Observation / measurement. Can be modifed directly to set new value.
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     pub z: SVector<T, M>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     H: SMatrix<T, M, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     H_t: SMatrix<T, N, M>,
     /// Measurement noise. Can be modifed directly to set new value.
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     pub R: SMatrix<T, M, M>,
     /// Calculates the predicted value of z. i.e h(x)
     // #[cfg_attr(feature = "serde", serde(skip))]

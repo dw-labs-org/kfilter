@@ -134,7 +134,7 @@ pub trait KalmanUpdate<T, const N: usize, const M: usize, ME: Measurement<T, N, 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Kalman<T: RealField, const N: usize, const U: usize, S> {
     /// Covariance
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
+    // #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     P: SMatrix<T, N, N>,
     /// The associated [System] containing the state vector x.
     /// This is public so changes can be made on the fly, which may be useful
@@ -274,8 +274,8 @@ where
             P: P_initial,
             system: LinearSystem::new(F, Q, B, x_initial),
         };
-        #[cfg(feature = "defmt")]
-        defmt::debug!("Kalman::new_with_input: {}", s);
+        // #[cfg(feature = "defmt")]
+        // defmt::debug!("Kalman::new_with_input: {:?}", s);
         s
     }
 }
