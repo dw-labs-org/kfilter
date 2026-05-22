@@ -1,7 +1,7 @@
 
 # Kfilter
 A no-std  implementation of the [Kalman](https://en.wikipedia.org/wiki/Kalman_filter)
-and [Extended Kalman Filter](https://en.wikipedia.org/wiki/Extended_Kalman_filter).
+, [Extended Kalman Filter](https://en.wikipedia.org/wiki/Extended_Kalman_filter) and [Unscented Kalman Filter](https://en.wikipedia.org/wiki/Unscented_Kalman_filter) in Rust.
 
 See the [documentation](https://docs.rs/kfilter) and [examples](https://github.com/dw-labs-org/kfilter/tree/main/examples) for usage.
 

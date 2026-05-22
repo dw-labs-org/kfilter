@@ -1,7 +1,8 @@
 #![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
 #![warn(missing_docs)]
-//! A no-std  implementation of the [Kalman](https://en.wikipedia.org/wiki/Kalman_filter)
-//!  and [Extended Kalman Filter](https://en.wikipedia.org/wiki/Extended_Kalman_filter)
+//! A no-std  implementation of the [Kalman](https://en.wikipedia.org/wiki/Kalman_filter),
+//! [Extended Kalman Filter](https://en.wikipedia.org/wiki/Extended_Kalman_filter)
+//! and [Unscented Kalman Filter](https://en.wikipedia.org/wiki/Unscented_Kalman_filter)
 //! based on [nalgebra::SMatrix] statically sized matrices.
 //!
 //! The base [Kalman] type is the most configurable, allowing multi-rate sensor measurements.
