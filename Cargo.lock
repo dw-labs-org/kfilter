@@ -176,7 +176,7 @@ checksum = "bd47b05dddf0005d850e5644cae7f2b14ac3df487979dbfff3b56f20b1a6ae46"
 
 [[package]]
 name = "kfilter"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "defmt",
  "nalgebra",
