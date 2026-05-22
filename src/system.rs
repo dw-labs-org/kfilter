@@ -58,16 +58,12 @@ pub trait NoInputSystem<T, const N: usize>: System<T, N, 0> {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+// #[cfg_attr(feature = "defmt", defmt(bound(T: ::defmt::Format, [T;N]: ::defmt::Format)))]
 pub struct LinearSystem<T: RealField, const N: usize, const U: usize> {
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     x: SVector<T, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     F: SMatrix<T, N, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     F_t: SMatrix<T, N, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     Q: SMatrix<T, N, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     B: SMatrix<T, N, U>,
 }
 
@@ -144,13 +140,9 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct LinearNoInputSystem<T: RealField, const N: usize> {
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     x: SVector<T, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     F: SMatrix<T, N, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     F_t: SMatrix<T, N, N>,
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     Q: SMatrix<T, N, N>,
 }
 
@@ -216,13 +208,10 @@ impl<T: RealField + Copy, const N: usize> NoInputSystem<T, N> for LinearNoInputS
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StepReturn<T: RealField, const N: usize> {
     /// The new state (x).
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     pub state: SVector<T, N>,
     /// The jacobian of the transition (F).
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     pub jacobian: SMatrix<T, N, N>,
     /// The process covariance (Q).
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     pub covariance: SMatrix<T, N, N>,
 }
 
@@ -240,18 +229,14 @@ pub type StepFunction<T, const N: usize, const U: usize> =
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NonLinearSystem<T: RealField, const N: usize, const U: usize> {
     /// System state
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     x: SVector<T, N>,
     /// Process Covariance, updated after step_fn() call.
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     Q: SMatrix<T, N, N>,
     /// Jacobian, updated after jacobian() call.
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     F: SMatrix<T, N, N>,
     /// Jacobian transpose, updated after jacobian() call.
-    #[cfg_attr(feature = "defmt", defmt(Debug2Format))]
     F_t: SMatrix<T, N, N>,
-    /// Function that steps from current state to next with an input   
+    /// Function that steps from current state to next with an input
     /// Returns the new state, the jacobian and the process covariance
     // #[cfg_attr(feature = "serde", serde(skip))]
     step_fn: StepFunction<T, N, U>,
