@@ -288,7 +288,7 @@ where
 impl<T, const N: usize, const X: usize, S> KalmanPredict<T, N> for UnscentedKalman<T, N, 0, X, S>
 where
     T: RealField + Copy,
-    S: NoInputSystem<T, N>,
+    S: NoInputSystem<T, N> + Clone,
 {
     type Error = UKFError;
     fn predict(&mut self) -> Result<&SVector<T, N>, Self::Error> {
@@ -299,8 +299,14 @@ where
         let sigma_points = self.generate_sigma_points()?;
         // map each point to a predicted state
         let predicted_states = sigma_points.points.map(|point| self.system.predict(&point));
+        // Some systems (e.g. NonLinearSystem) only refresh their process noise
+        // covariance as a side effect of step(), which also mutates state. Step
+        // a scratch copy at the pre-predict mean so Q reflects the current state
+        // without disturbing the sigma point expansion above.
+        let mut probe = self.system.clone();
+        probe.step();
         let (predicted_mean, cov) =
-            sigma_points.mean_and_covariance(&predicted_states, self.system.covariance());
+            sigma_points.mean_and_covariance(&predicted_states, probe.covariance());
         // Assign the new mean and covariance to the system
         *self.system.state_mut() = predicted_mean;
         self.P = cov;
@@ -314,7 +320,7 @@ impl<T, const N: usize, const U: usize, const X: usize, S> KalmanPredictInput<T,
     for UnscentedKalman<T, N, U, X, S>
 where
     T: RealField + Copy,
-    S: InputSystem<T, N, U>,
+    S: InputSystem<T, N, U> + Clone,
 {
     type Error = UKFError;
     fn predict(&mut self, u: SVector<T, U>) -> Result<&SVector<T, N>, Self::Error> {
@@ -327,8 +333,14 @@ where
         let predicted_states = sigma_points
             .points
             .map(|point| self.system.predict(&point, &u));
+        // Some systems (e.g. NonLinearSystem) only refresh their process noise
+        // covariance as a side effect of step(), which also mutates state. Step
+        // a scratch copy at the pre-predict mean so Q reflects the current state
+        // and input without disturbing the sigma point expansion above.
+        let mut probe = self.system.clone();
+        probe.step(u);
         let (predicted_mean, cov) =
-            sigma_points.mean_and_covariance(&predicted_states, self.system.covariance());
+            sigma_points.mean_and_covariance(&predicted_states, probe.covariance());
         // Assign the new mean and covariance to the system
         *self.system.state_mut() = predicted_mean;
         self.P = cov;
@@ -715,6 +727,30 @@ mod tests {
         compare_to_kf_input::<2, 2, 5, 1>();
         compare_to_kf_input::<3, 3, 7, 3>();
         compare_to_kf_input::<6, 6, 13, 6>();
+    }
+
+    #[test]
+    fn predict_applies_process_noise_for_nonlinear_system() {
+        use crate::system::{NonLinearSystem, StepReturn};
+
+        fn step_fn(x: SVector<f64, 2>, _u: SVector<f64, 0>) -> StepReturn<f64, 2> {
+            StepReturn {
+                state: Vector2::new(x[0] + x[1] * 0.1, x[1]),
+                jacobian: Matrix2::identity(),
+                covariance: Matrix2::identity() * 5.0,
+            }
+        }
+
+        let system = NonLinearSystem::new(step_fn, Vector2::new(0.0, 1.0));
+        let mut ukf: UnscentedKalman<f64, 2, 0, 5, _> =
+            UnscentedKalman::new_custom(system, Matrix2::identity() * 0.1);
+
+        ukf.predict(SVector::<f64, 0>::zeros()).unwrap();
+
+        // Q = 5*I should dominate covariance growth; previously it was silently
+        // dropped and the diagonal barely moved from its initial 0.1.
+        assert!(ukf.covariance()[(0, 0)] > 4.0);
+        assert!(ukf.covariance()[(1, 1)] > 4.0);
     }
 
     #[test]
