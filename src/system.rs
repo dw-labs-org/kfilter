@@ -302,15 +302,107 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
     }
 }
 
+/// Convert a state matrix from continuous time (A) to discrete time (F) using the
+/// exact zero-order-hold transform: `F = exp(A * dt)`.
+///
+/// The matrix exponential is computed with scaling-and-squaring: `A * dt` is halved
+/// until its norm is small, a truncated Taylor series is evaluated on the scaled
+/// matrix, and the result is squared back up. This is exact in the limit of the
+/// series and accurate to within a few ULPs in practice, at the cost of more
+/// computation than [euler]. Prefer [euler] where the extra accuracy isn't needed.
+pub fn zero_order_hold<T: RealField + Copy, const N: usize>(
+    state_matrix: SMatrix<T, N, N>,
+    timestep: T,
+) -> SMatrix<T, N, N> {
+    matrix_exp(state_matrix * timestep)
+}
+
 /// Convert a state matrix from continuous time (A) to discrete time (F) using a
 /// first-order (Euler) approximation of the zero-order-hold transform: `F = I + A * dt`.
 ///
-/// This is not the exact zero-order-hold discretization, which requires the matrix
-/// exponential `F = exp(A * dt)`. Accuracy degrades as `dt` or the magnitude of `A`
-/// grows; prefer a smaller `dt` for systems with fast dynamics.
-pub fn zero_order_hold<T: RealField, const N: usize>(
+/// Cheaper than [zero_order_hold] but only accurate for small `dt` relative to the
+/// magnitude of `A`; prefer [zero_order_hold] for fast dynamics or larger timesteps.
+pub fn euler<T: RealField, const N: usize>(
     state_matrix: SMatrix<T, N, N>,
     timestep: T,
 ) -> SMatrix<T, N, N> {
     SMatrix::identity() + state_matrix * timestep
+}
+
+/// Maximum number of scaling-and-squaring doublings, bounding the loop below even
+/// for pathologically large inputs.
+const MATRIX_EXP_MAX_SCALE: u32 = 64;
+/// Number of Taylor series terms evaluated on the scaled matrix. After scaling,
+/// the matrix norm is <= 0.5, so this is accurate to well beyond `f64` precision.
+const MATRIX_EXP_TAYLOR_TERMS: usize = 12;
+
+/// Compute the matrix exponential `exp(a)` via scaling-and-squaring.
+fn matrix_exp<T: RealField + Copy, const N: usize>(a: SMatrix<T, N, N>) -> SMatrix<T, N, N> {
+    let half = T::from_f64(0.5).unwrap();
+
+    // Find s such that ||a|| / 2^s <= 0.5, capped to avoid unbounded looping.
+    let mut scale_power = 0u32;
+    let mut scaled_norm = a.norm();
+    while scaled_norm > half && scale_power < MATRIX_EXP_MAX_SCALE {
+        scaled_norm *= half;
+        scale_power += 1;
+    }
+    let two = T::from_f64(2.0).unwrap();
+    let mut scale = T::one();
+    for _ in 0..scale_power {
+        scale *= two;
+    }
+    let scaled = a / scale;
+
+    // Taylor series for exp(scaled) = sum_{k=0}^{K} scaled^k / k!
+    let mut term = SMatrix::<T, N, N>::identity();
+    let mut result = SMatrix::<T, N, N>::identity();
+    for k in 1..=MATRIX_EXP_TAYLOR_TERMS {
+        term = term * scaled / T::from_usize(k).unwrap();
+        result += term;
+    }
+
+    // Undo the scaling by repeated squaring.
+    for _ in 0..scale_power {
+        result *= result;
+    }
+    result
+}
+
+#[cfg(test)]
+mod discretization_tests {
+    use super::*;
+    use nalgebra::Matrix2;
+
+    #[test]
+    fn zero_order_hold_matches_analytic_rotation() {
+        // A skew-symmetric generator produces an exact rotation under exp(A*dt),
+        // which the first-order Euler approximation cannot reproduce exactly.
+        let omega = 1.3_f64;
+        let dt = 0.2_f64;
+        let a = Matrix2::new(0.0, -omega, omega, 0.0);
+        let f = zero_order_hold(a, dt);
+        let (s, c) = (omega * dt).sin_cos();
+        let expected = Matrix2::new(c, -s, s, c);
+        assert!((f - expected).norm() < 1e-9);
+        // A true rotation matrix is orthogonal with determinant 1.
+        assert!((f.determinant() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn zero_order_hold_matches_scalar_exp() {
+        let a = nalgebra::Matrix1::new(-0.7_f64);
+        let dt = 0.5_f64;
+        let f = zero_order_hold(a, dt);
+        assert!((f[(0, 0)] - (-0.7_f64 * 0.5).exp()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn euler_matches_first_order_expansion() {
+        let a = Matrix2::new(1.0, 2.0, 0.5, -1.0);
+        let dt = 0.05_f64;
+        let f = euler(a, dt);
+        let expected = Matrix2::identity() + a * dt;
+        assert_eq!(f, expected);
+    }
 }
