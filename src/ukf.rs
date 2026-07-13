@@ -123,6 +123,12 @@ impl<T: RealField + Copy, const N: usize, const X: usize> SigmaPoints<T, N, X> {
         points[0] = *mean;
         // Assign weights
         let lambda = params.lambda(N);
+        // n_f + lambda is a divisor for every weight below and is square-rooted
+        // for the sigma point spread; zero (e.g. kappa == -N) or negative values
+        // would silently produce NaN/Inf rather than a usable filter.
+        if n_f + lambda <= T::zero() {
+            return Err(UKFError::InvalidParameters);
+        }
         let mean_weight = lambda / (n_f + lambda);
         let mean_cov_weight = mean_weight + (T::one() - params.alpha.powi(2) + params.beta);
         let weight = T::one() / (T::from_f32(2.0).unwrap() * (n_f + lambda));
@@ -742,6 +748,20 @@ mod tests {
         println!("Sigma Points: {sigma_points:?}");
 
         assert!((sigma_points.points[0] - mean).norm() < 1e-10);
+    }
+
+    #[test]
+    fn sigma_points_reject_degenerate_kappa() {
+        type T = f64;
+
+        // N = 2, kappa = -N makes n + lambda == 0, which previously divided by
+        // zero and produced NaN sigma point weights instead of an error.
+        let params = UKFParameters::<T>::new(1.0, 0.0, -2.0).unwrap();
+        let mean = Vector2::new(1.0, 2.0);
+        let cov = Matrix2::identity();
+
+        let result = SigmaPoints::<T, 2, 5>::new(&mean, &cov, &params);
+        assert!(matches!(result, Err(UKFError::InvalidParameters)));
     }
 
     // #[test]
