@@ -302,7 +302,12 @@ impl<T: RealField + Copy, const N: usize, const U: usize> InputSystem<T, N, U>
     }
 }
 
-/// Convert a state matrix from continuous time (A) to discrete time (F) using zero-order-hold
+/// Convert a state matrix from continuous time (A) to discrete time (F) using a
+/// first-order (Euler) approximation of the zero-order-hold transform: `F = I + A * dt`.
+///
+/// This is not the exact zero-order-hold discretization, which requires the matrix
+/// exponential `F = exp(A * dt)`. Accuracy degrades as `dt` or the magnitude of `A`
+/// grows; prefer a smaller `dt` for systems with fast dynamics.
 pub fn zero_order_hold<T: RealField, const N: usize>(
     state_matrix: SMatrix<T, N, N>,
     timestep: T,
