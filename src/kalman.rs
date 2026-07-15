@@ -527,7 +527,10 @@ where
 mod test {
     use nalgebra::Matrix1;
 
-    use crate::{kalman::KalmanUpdate, measurement::LinearMeasurement};
+    use crate::{
+        kalman::{KalmanFilter, KalmanUpdate},
+        measurement::{LinearMeasurement, NonLinearMeasurement},
+    };
 
     #[test]
     fn does_not_panic() {
@@ -564,5 +567,37 @@ mod test {
             Matrix1::new(0.0),
         ))
         .unwrap();
+    }
+
+    fn identity_h(x: &nalgebra::SVector<f64, 1>) -> nalgebra::SVector<f64, 1> {
+        *x
+    }
+
+    #[test]
+    fn nonlinear_measurement_update_requires_set_observation() {
+        let mut k = super::KalmanLinearNoInput::<f64, 1>::new(
+            Matrix1::identity(),
+            Matrix1::identity(),
+            nalgebra::Vector1::new(0.0),
+            Matrix1::new(1.0),
+        );
+
+        let mut meas = NonLinearMeasurement::<f64, 1, 1>::new(
+            identity_h,
+            Matrix1::new(0.1),
+            nalgebra::Vector1::new(5.0),
+        );
+
+        // Before set_observation, H is zero, so the Kalman gain is zero and the
+        // update is a no-op on the state. This was previously permanent, since
+        // there was no way to set H at all.
+        k.update(&meas).unwrap();
+        assert_eq!(k.state()[0], 0.0);
+
+        // After set_observation, the update actually pulls the state toward
+        // the measurement.
+        meas.set_observation(Matrix1::new(1.0));
+        k.update(&meas).unwrap();
+        assert!(k.state()[0] > 1.0);
     }
 }

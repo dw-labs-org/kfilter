@@ -94,7 +94,8 @@ impl<T: RealField + Copy, const N: usize, const M: usize> LinearisableMeasuremen
 pub type Prediction<T, const N: usize, const M: usize> = fn(&SVector<T, N>) -> SVector<T, M>;
 
 /// A non linear measurement that uses a prediction function to calculate h(x)
-/// H and R must be updated before being passed to [Kalman](crate::kalman::Kalman) filter
+/// H (via [Self::set_observation]) and R must be updated before being passed to
+/// [Kalman](crate::kalman::Kalman) filter
 #[allow(non_snake_case)]
 #[derive(Debug, Clone)]
 // #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -122,6 +123,17 @@ impl<T: RealField, const N: usize, const M: usize> NonLinearMeasurement<T, N, M>
             R,
             prediction_fn,
         }
+    }
+
+    /// Set a new observation matrix (the Jacobian of the prediction function,
+    /// typically evaluated at the current state estimate), also updating its
+    /// cached transpose. Must be called before each [Kalman](crate::kalman::Kalman)
+    /// `update()` when using the (non-UKF) EKF update path, since [Self::observation]
+    /// otherwise stays at its zero initial value forever.
+    #[allow(non_snake_case)]
+    pub fn set_observation(&mut self, H: SMatrix<T, M, N>) {
+        self.H_t = H.transpose();
+        self.H = H;
     }
 }
 
@@ -154,5 +166,34 @@ impl<T: RealField + Copy, const N: usize, const M: usize> LinearisableMeasuremen
 
     fn observation_transpose(&self) -> &SMatrix<T, N, M> {
         &self.H_t
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::{Matrix1, Matrix1x2, Vector1, Vector2};
+
+    fn identity_h(x: &Vector2<f64>) -> Vector1<f64> {
+        Vector1::new(x[0])
+    }
+
+    #[test]
+    fn observation_starts_zero() {
+        let m = NonLinearMeasurement::<f64, 2, 1>::new(identity_h, Matrix1::identity(), Vector1::new(0.0));
+        assert_eq!(*m.observation(), Matrix1x2::zeros());
+        assert_eq!(*m.observation_transpose(), SMatrix::<f64, 2, 1>::zeros());
+    }
+
+    #[test]
+    fn set_observation_updates_h_and_transpose() {
+        let mut m =
+            NonLinearMeasurement::<f64, 2, 1>::new(identity_h, Matrix1::identity(), Vector1::new(0.0));
+        let h = Matrix1x2::new(2.0, -1.0);
+
+        m.set_observation(h);
+
+        assert_eq!(*m.observation(), h);
+        assert_eq!(*m.observation_transpose(), h.transpose());
     }
 }
