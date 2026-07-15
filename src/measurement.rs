@@ -156,3 +156,70 @@ impl<T: RealField + Copy, const N: usize, const M: usize> LinearisableMeasuremen
         &self.H_t
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::{Matrix1, Matrix1x2, Vector1, Vector2};
+
+    #[test]
+    fn linear_measurement_predict_applies_observation_matrix() {
+        let h = Matrix1x2::new(2.0, -1.0);
+        let m = LinearMeasurement::<f64, 2, 1>::new(h, Matrix1::identity(), Vector1::new(0.0));
+        let x = Vector2::new(3.0, 5.0);
+        // h(x) = H * x = 2*3 - 1*5 = 1
+        assert_eq!(m.predict(&x), Vector1::new(1.0));
+    }
+
+    #[test]
+    fn linear_measurement_set_measurement_round_trips() {
+        let mut m = LinearMeasurement::<f64, 2, 1>::new(
+            Matrix1x2::new(1.0, 0.0),
+            Matrix1::identity(),
+            Vector1::new(0.0),
+        );
+        m.set_measurement(Vector1::new(7.5));
+        assert_eq!(*m.measurement(), Vector1::new(7.5));
+    }
+
+    #[test]
+    fn linear_measurement_observation_and_transpose_are_consistent() {
+        let h = Matrix1x2::new(2.0, -1.0);
+        let m = LinearMeasurement::<f64, 2, 1>::new(h, Matrix1::identity(), Vector1::new(0.0));
+        assert_eq!(*m.observation(), h);
+        assert_eq!(*m.observation_transpose(), h.transpose());
+    }
+
+    #[test]
+    fn linear_measurement_covariance_matches_constructor() {
+        let r = Matrix1::new(0.25);
+        let m = LinearMeasurement::<f64, 2, 1>::new(Matrix1x2::new(1.0, 0.0), r, Vector1::new(0.0));
+        assert_eq!(*m.covariance(), r);
+    }
+
+    #[test]
+    fn nonlinear_measurement_predict_calls_prediction_fn() {
+        fn range(x: &Vector2<f64>) -> Vector1<f64> {
+            Vector1::new((x[0] * x[0] + x[1] * x[1]).sqrt())
+        }
+        let m = NonLinearMeasurement::<f64, 2, 1>::new(range, Matrix1::identity(), Vector1::new(0.0));
+        let x = Vector2::new(3.0, 4.0);
+        assert_eq!(m.predict(&x), Vector1::new(5.0));
+    }
+
+    #[test]
+    fn nonlinear_measurement_observation_starts_and_stays_zero() {
+        // NonLinearMeasurement has no setter for H, despite its doc comment
+        // claiming "H ... must be updated before being passed to Kalman filter".
+        // This documents the current (broken) behavior: H is permanently zero,
+        // so a Kalman/EKF update() against a NonLinearMeasurement always computes
+        // a zero gain and never actually updates the state. See issues.md.
+        fn identity_h(x: &Vector2<f64>) -> Vector1<f64> {
+            Vector1::new(x[0])
+        }
+        let m =
+            NonLinearMeasurement::<f64, 2, 1>::new(identity_h, Matrix1::identity(), Vector1::new(0.0));
+        assert_eq!(*m.observation(), Matrix1x2::zeros());
+        assert_eq!(*m.observation_transpose(), SMatrix::<f64, 2, 1>::zeros());
+    }
+}

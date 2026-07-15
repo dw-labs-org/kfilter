@@ -527,7 +527,10 @@ where
 mod test {
     use nalgebra::Matrix1;
 
-    use crate::{kalman::KalmanUpdate, measurement::LinearMeasurement};
+    use crate::{
+        kalman::{KalmanFilter, KalmanPredictInput, KalmanUpdate},
+        measurement::LinearMeasurement,
+    };
 
     #[test]
     fn does_not_panic() {
@@ -564,5 +567,78 @@ mod test {
             Matrix1::new(0.0),
         ))
         .unwrap();
+    }
+
+    #[allow(non_snake_case)]
+    fn ekf_step_fn(
+        x: nalgebra::SVector<f64, 2>,
+        u: nalgebra::SVector<f64, 1>,
+    ) -> crate::system::StepReturn<f64, 2> {
+        // Must mirror the F/B/Q used to build the plain linear KF in
+        // ekf_matches_kf_for_linear_system below: step_fn is a bare fn pointer
+        // so it can't capture them at runtime.
+        let F = nalgebra::Matrix2::new(1.0, 0.1, 0.0, 1.0);
+        let B = nalgebra::Vector2::new(0.0, 1.0);
+        let Q = nalgebra::Matrix2::identity() * 0.05;
+        crate::system::StepReturn {
+            state: F * x + B * u,
+            jacobian: F,
+            covariance: Q,
+        }
+    }
+
+    #[allow(non_snake_case)]
+    #[test]
+    fn ekf_matches_kf_for_linear_system() {
+        // NonLinearSystem/EKF has no dedicated regression test against the plain
+        // KF (unlike UnscentedKalman, which is checked in ukf.rs). Wrapping a
+        // linear model as an EKF and comparing against Kalman/LinearSystem
+        // exercises that predict/update path with a known-correct reference.
+        use nalgebra::{Matrix1, Matrix1x2, Matrix2, SVector, Vector2};
+
+        let F = Matrix2::new(1.0, 0.1, 0.0, 1.0);
+        let B = Vector2::new(0.0, 1.0);
+        let Q = Matrix2::identity() * 0.05;
+        let x_initial = Vector2::new(0.0, 1.0);
+        let P_initial = Matrix2::identity();
+
+        let mut kf = super::KalmanLinear::<f64, 2, 1>::new_with_input(
+            F, Q, B, x_initial, P_initial,
+        );
+        let mut ekf =
+            super::EKF::<f64, 2, 1>::new_ekf_with_input(ekf_step_fn, x_initial, P_initial);
+
+        let h = Matrix1x2::new(1.0, 0.0);
+        let r = Matrix1::new(0.5);
+
+        for i in 0..10 {
+            let u = SVector::<f64, 1>::new(0.2);
+            kf.predict(u).unwrap();
+            ekf.predict(u).unwrap();
+            assert!(kf
+                .state()
+                .iter()
+                .zip(ekf.state().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-9));
+            assert!(kf
+                .covariance()
+                .iter()
+                .zip(ekf.covariance().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-9));
+
+            let meas = LinearMeasurement::new(h, r, Matrix1::new(i as f64 * 0.1));
+            kf.update(&meas).unwrap();
+            ekf.update(&meas).unwrap();
+            assert!(kf
+                .state()
+                .iter()
+                .zip(ekf.state().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-9));
+            assert!(kf
+                .covariance()
+                .iter()
+                .zip(ekf.covariance().iter())
+                .all(|(a, b)| (a - b).abs() < 1e-9));
+        }
     }
 }
